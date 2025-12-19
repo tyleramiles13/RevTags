@@ -1,0 +1,127 @@
+/* Reset / base styles */
+* {
+  box-sizing: border-box;
+}
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Arial, sans-serif;
+  background: linear-gradient(180deg, #f4f6f8, #e9edf2);
+  min-height: 100vh;
+  margin: 0;
+  padding: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+/* Main card */
+.card {
+  width: 100%;
+  max-width: 420px;
+  background: #ffffff;
+  padding: 28px;
+  border-radius: 14px;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.08);
+  text-align: center;
+}
+
+/* Headings */
+h1 {
+  font-size: 22px;
+  margin: 0 0 6px;
+  color: #111;
+}
+
+.business {
+  font-size: 14px;
+  color: #6b7280;
+  margin-bottom: 22px;
+}
+
+/* Buttons */
+button {
+  width: 100%;
+  padding: 14px;
+  font-size: 16px;
+  font-weight: 600;
+  border-radius: 10px;
+  border: none;
+  cursor: pointer;
+  transition: transform 0.1s ease, box-shadow 0.1s ease;
+}
+
+button:active {
+  transform: scale(0.98);
+}
+
+/* Primary action */
+#draftBtn {
+  background: #111827;
+  color: #ffffff;
+  margin-bottom: 14px;
+}
+
+#draftBtn:hover {
+  box-shadow: 0 6px 14px rgba(17, 24, 39, 0.25);
+}
+
+/* Textarea */
+textarea {
+  width: 100%;
+  padding: 14px;
+  font-size: 15px;
+  border-radius: 10px;
+  border: 1px solid #d1d5db;
+  resize: none;
+  margin-bottom: 14px;
+  font-family: inherit;
+}
+
+textarea:focus {
+  outline: none;
+  border-color: #111827;
+}
+
+/* Action buttons container */
+.actions {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+/* Copy button */
+#copyBtn {
+  background: #e5e7eb;
+  color: #111827;
+  flex: 1;
+}
+
+#copyBtn:hover {
+  background: #d1d5db;
+}
+
+/* Google review button */
+.google-btn {
+  flex: 1;
+  background: #4285f4;
+  color: #ffffff;
+  text-decoration: none;
+  font-weight: 600;
+  padding: 14px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: box-shadow 0.1s ease;
+}
+
+.google-btn:hover {
+  box-shadow: 0 6px 14px rgba(66, 133, 244, 0.35);
+}
+
+/* Footer note */
+.note {
+  font-size: 12px;
+  color: #6b7280;
+  margin-top: 6px;
+}
