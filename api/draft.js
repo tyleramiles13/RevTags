@@ -12,7 +12,7 @@ export default async function handler(req, res) {
   const { business, employee, extra } = req.body;
 
   if (!business || !employee) {
-    return res.status(400).json({ error: "Missing data" });
+    return res.status(400).json({ error: "Missing business or employee" });
   }
 
   try {
@@ -22,13 +22,11 @@ export default async function handler(req, res) {
         {
           role: "system",
           content:
-            "You write short, natural Google reviews. They must sound like real customers, not marketing copy. Vary phrasing every time.",
+            "You write short, natural Google reviews that sound like real customers. Avoid marketing language. Vary wording every time.",
         },
         {
           role: "user",
-          content: `Write a short Google review for ${employee} at ${business}. 
-          Keep it casual, friendly, and realistic. Do not sound promotional.
-          ${extra || ""}`,
+          content: `Write a short, casual Google review for ${employee} at ${business}. Make it sound human and authentic.`,
         },
       ],
       temperature: 0.9,
@@ -43,3 +41,4 @@ export default async function handler(req, res) {
     res.status(500).json({ error: "AI generation failed" });
   }
 }
+
