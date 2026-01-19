@@ -17,20 +17,43 @@ module.exports = async function handler(req, res) {
     return res.json({ error: "Missing OPENAI_API_KEY_REAL" });
   }
 
-  // Default to detailing so Will’s existing page still behaves correctly
-  const type = (businessType || "auto_detailing").toLowerCase();
+  // --- Determine business type (safe for Will + fixes Swave if businessType isn't being sent) ---
+  let type = (businessType || "").toLowerCase().trim();
 
-  // Keyword + validation rules by business type
+  // Normalize common variants
+  if (type === "auto-detailing") type = "auto_detailing";
+  if (type === "detail" || type === "detailing") type = "auto_detailing";
+
+  if (!type) {
+    // If script.js forgot to send businessType, guess from serviceNotes
+    const notesLower = (serviceNotes || "").toLowerCase();
+
+    const solarHints = [
+      "solar", "panel", "panels", "quote", "pricing", "bill", "savings",
+      "financing", "install", "installation", "estimate", "kw", "utility"
+    ];
+
+    const looksSolar = solarHints.some((w) => notesLower.includes(w));
+    type = looksSolar ? "solar" : "auto_detailing";
+  }
+
+  // --- Keyword + validation rules by business type ---
   const rules = {
     auto_detailing: {
       label: "an auto detailing service",
-      mustIncludeAny: ["interior", "exterior", "vacuum", "vacuumed", "spotless", "shiny", "clean", "fresh", "smelled", "wax", "polish"],
+      mustIncludeAny: [
+        "interior", "exterior", "vacuum", "vacuumed", "spotless", "shiny",
+        "clean", "fresh", "smelled", "wax", "polish"
+      ],
       mustMentionAny: ["car", "vehicle"],
       avoidStarts: ["just had", "just got", "i just"]
     },
     solar: {
       label: "a solar sales consultation",
-      mustIncludeAny: ["solar", "panels", "panel", "quote", "pricing", "bill", "savings", "financing", "estimate", "install", "installation", "process"],
+      mustIncludeAny: [
+        "solar", "panels", "panel", "quote", "pricing", "bill", "savings",
+        "financing", "estimate", "install", "installation", "process"
+      ],
       // for solar, we don’t require “car/vehicle”
       mustMentionAny: [],
       avoidStarts: ["just had", "just got", "i just"]
