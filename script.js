@@ -2,9 +2,24 @@
   const card = document.querySelector(".card");
   if (!card) return;
 
+  // --- Support BOTH old pages (Will) and new pages (Swave) ---
+  // Old Will page uses:
+  //   data-business, data-employee, data-google-url
+  // New Swave pages use:
+  //   data-employee, data-business-type, data-service-notes, data-google-review-url
+
   const business = card.dataset.business || "the business";
   const employee = card.dataset.employee || "the employee";
-  const googleUrl = card.dataset.googleUrl || "#";
+
+  // New fields (for solar / future business types)
+  const businessType = (card.dataset.businessType || "").trim(); // data-business-type
+  const serviceNotes = (card.dataset.serviceNotes || "").trim(); // data-service-notes
+
+  // Google review link (prefer new "write review" link, fallback to old link)
+  const googleUrl =
+    card.dataset.googleReviewUrl || // data-google-review-url (new)
+    card.dataset.googleUrl ||       // data-google-url (old)
+    "#";
 
   const employeeNameEl = document.getElementById("employeeName");
   const businessNameEl = document.getElementById("businessName");
@@ -14,7 +29,7 @@
   const copyBtn = document.getElementById("copyBtn");
   const reviewText = document.getElementById("reviewText");
 
-  // Fill visible fields
+  // Fill visible fields (only if those elements exist on the page)
   if (employeeNameEl) employeeNameEl.textContent = employee;
   if (businessNameEl) businessNameEl.textContent = business;
   if (googleBtn) googleBtn.href = googleUrl;
@@ -38,7 +53,6 @@
   }
 
   function flashError(msg) {
-    // simple, non-ugly error
     alert(msg);
   }
 
@@ -47,17 +61,20 @@
     setDraftLoading(true);
 
     try {
-      // Optional: let user add a tiny detail for better reviews
-      // (kept simple so it doesn't slow them down)
-      const extra = ""; // you can wire this later to a small input if you want
+      const extra = ""; // optional for later
 
       const res = await fetch("/api/draft", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          // Keep old fields for compatibility
           business,
           employee,
-          extra
+          extra,
+
+          // NEW fields (these fix Swave / solar)
+          businessType,
+          serviceNotes
         })
       });
 
