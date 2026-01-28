@@ -32,7 +32,7 @@ module.exports = async function handler(req, res) {
     type = looksSolar ? "solar" : "auto_detailing";
   }
 
-  // --- Topic words (broad pools so it doesn’t force the same 3 words) ---
+  // --- Topic words: broad pools so it doesn’t force the same 3 words ---
   const topic = {
     auto_detailing: {
       label: "auto detailing",
@@ -41,7 +41,7 @@ module.exports = async function handler(req, res) {
         "exterior", "paint", "wheels", "tires", "finish", "shine",
         "clean", "detailed", "like new", "great job", "attention to detail"
       ],
-      // Keep Will’s “perfect” feel the same
+      // Keep Will’s vibe (discourage the overused words)
       softAvoid: ["spotless", "fresh", "magic"]
     },
     solar: {
@@ -51,9 +51,7 @@ module.exports = async function handler(req, res) {
         "savings", "financing", "roof", "installation", "timeline", "options",
         "questions", "next steps", "process"
       ],
-      // IMPORTANT CHANGE:
-      // Don’t over-filter solar with phrase bans, or it triggers fallback constantly.
-      // Keep this empty so solar passes more often.
+      // IMPORTANT: keep solar softAvoid empty so it passes validation more often
       softAvoid: []
     }
   };
@@ -61,8 +59,8 @@ module.exports = async function handler(req, res) {
   const cfg = topic[type] || topic.auto_detailing;
   const notes = String(serviceNotes || "").trim();
 
-  // --- Hard punctuation rules ---
-  // No semicolons, no colons, no dashes of any kind
+  // --- Hard punctuation rules you asked for ---
+  // no semicolons, no colons, no dashes of any kind
   function hasForbiddenPunctuation(text) {
     return /[;:—–-]/.test(text || "");
   }
@@ -122,7 +120,7 @@ module.exports = async function handler(req, res) {
     return arr[Math.floor(Math.random() * arr.length)];
   }
 
-  // Mostly 1 sentence, sometimes 2
+  // Variation: mostly 1 sentence, sometimes 2
   const wantTwoSentences = Math.random() < 0.25;
   const sentenceTarget = wantTwoSentences ? 2 : 1;
 
@@ -130,17 +128,18 @@ module.exports = async function handler(req, res) {
     const focusA = pick(cfg.tokens);
     const focusB = pick(cfg.tokens);
 
-    // Solar-specific “frames” that read smoother (more like Will’s)
+    // Frames help it “flow” without repeating the same structure
     const oneSentenceFrames = [
-      `Write one sentence that starts with a simple positive result, then mention "${employee}" later and include a ${cfg.label} detail.`,
-      `Write one sentence that sounds like a real customer, mention "${employee}" once, and include one ${cfg.label} detail.`,
-      `Write one sentence with a calm recommendation vibe, mention "${employee}" after the first phrase, and include a ${cfg.label} detail.`
+      `Write one sentence that starts with a simple positive result, mention "${employee}" later, and include one ${cfg.label} detail.`,
+      `Write one sentence that sounds like a real customer, mention "${employee}" once, and include a small ${cfg.label} detail.`,
+      `Write one sentence that starts with a short compliment, then mention "${employee}" later and include a ${cfg.label} detail.`,
+      `Write one sentence that sounds casual and normal, mention "${employee}" once, and include one ${cfg.label} detail.`
     ];
 
     const twoSentenceFrames = [
       `Write two short sentences. First sentence is general and positive. Second sentence mentions "${employee}" and includes one ${cfg.label} detail.`,
       `Write two short sentences. Mention "${employee}" in the second sentence, not the first. Keep it natural.`,
-      `Write two short sentences that sound normal and not scripted. Include one ${cfg.label} detail total.`
+      `Write two short sentences that do not sound scripted. Include one ${cfg.label} detail total.`
     ];
 
     const frame = sentenceTarget === 1 ? pick(oneSentenceFrames) : pick(twoSentenceFrames);
@@ -169,6 +168,8 @@ What to include:
 Optional notes (use lightly if helpful, do not copy exactly):
 ${notes || "(none)"}
 
+Extra:
+- Avoid repeating common phrases like "worked his magic".
 Return ONLY the review text.
     `.trim();
   }
@@ -207,33 +208,34 @@ Return ONLY the review text.
   try {
     let review = "";
 
-    for (let attempt = 0; attempt < 10; attempt++) {
+    // More tries reduces fallback usage
+    for (let attempt = 0; attempt < 12; attempt++) {
       review = await generateOnce();
       if (isGood(review)) break;
     }
 
-    // --- Randomized fallback (THIS is the big solar fix) ---
+    // --- Randomized fallback (so it never repeats) ---
     if (!isGood(review)) {
       if (type === "solar") {
-        const solarFallbacks1 = [
-          `Really glad I got clear answers about solar. ${employee} made the quote and options easy to understand.`,
+        const solarFallback1 = [
+          `Really glad I got clear info about solar. ${employee} made the quote and options easy to understand.`,
           `Good experience learning about solar. ${employee} answered my questions and explained the estimate clearly.`,
           `Solar info was straightforward and helpful. ${employee} explained pricing and next steps in a simple way.`,
-          `Happy with the solar conversation. ${employee} explained the quote and timeline without any pressure.`,
+          `Happy with the solar info I got. ${employee} explained the quote and timeline in a way that made sense.`,
           `It was easy to understand the solar options. ${employee} explained the estimate and process clearly.`
         ];
 
-        const solarFallbacks2 = [
-          `The solar quote was easy to follow. ${employee} answered my questions and kept it simple.`,
+        const solarFallback2 = [
+          `Helpful solar info, ${employee} made the quote easy to understand.`,
           `Good solar conversation, ${employee} explained the estimate clearly.`,
-          `Helpful solar info, ${employee} made the pricing easy to understand.`,
-          `Simple and clear solar explanation, ${employee} answered my questions.`
+          `Simple and clear solar info, ${employee} answered my questions.`,
+          `Easy solar explanation, ${employee} made the pricing make sense.`
         ];
 
-        const pool = sentenceTarget === 2 ? solarFallbacks1 : solarFallbacks2;
+        const pool = sentenceTarget === 2 ? solarFallback1 : solarFallback2;
         review = pick(pool);
       } else {
-        // Keep Will’s detailing fallback style the same
+        // Keep Will’s detailing fallback style unchanged
         review = sentenceTarget === 2
           ? `My car looks great after the detail. ${employee} did a solid job on the interior and finish.`
           : `My car looks great after the detail, ${employee} did a solid job on the interior and finish.`;
@@ -247,6 +249,7 @@ Return ONLY the review text.
     return res.json({ error: "AI generation failed" });
   }
 };
+
 
 
 
