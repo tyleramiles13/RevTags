@@ -32,7 +32,6 @@ module.exports = async function handler(req, res) {
     type = looksSolar ? "solar" : "auto_detailing";
   }
 
-  // --- Topic words: broad pools so it doesn’t force the same 3 words ---
   const topic = {
     auto_detailing: {
       label: "auto detailing",
@@ -41,7 +40,6 @@ module.exports = async function handler(req, res) {
         "exterior", "paint", "wheels", "tires", "finish", "shine",
         "clean", "detailed", "like new", "great job", "attention to detail"
       ],
-      // Keep Will’s vibe (discourage the overused words)
       softAvoid: ["spotless", "fresh", "magic"]
     },
     solar: {
@@ -51,7 +49,6 @@ module.exports = async function handler(req, res) {
         "savings", "financing", "roof", "installation", "timeline", "options",
         "questions", "next steps", "process"
       ],
-      // IMPORTANT: keep solar softAvoid empty so it passes validation more often
       softAvoid: []
     }
   };
@@ -59,15 +56,42 @@ module.exports = async function handler(req, res) {
   const cfg = topic[type] || topic.auto_detailing;
   const notes = String(serviceNotes || "").trim();
 
-  // --- Hard punctuation rules you asked for ---
-  // no semicolons, no colons, no dashes of any kind
-  function hasForbiddenPunctuation(text) {
-    return /[;:—–-]/.test(text || "");
+  function pick(arr) {
+    return arr[Math.floor(Math.random() * arr.length)];
   }
 
-  function countSentences(text) {
-    const parts = (text || "").trim().split(/[.!?]+/).filter(Boolean);
-    return parts.length;
+  // Mostly 1 sentence, sometimes 2
+  const wantTwoSentences = Math.random() < 0.25;
+  const sentenceTarget = wantTwoSentences ? 2 : 1;
+
+  // --- Helpers: sanitize instead of rejecting ---
+  function sanitizePunctuation(text) {
+    if (!text) return "";
+    // Remove forbidden punctuation ; : and any dash types
+    return text.replace(/[;:—–-]/g, "");
+  }
+
+  function trimToTwoSentences(text) {
+    const raw = (text || "").trim();
+    if (!raw) return raw;
+
+    const parts = raw.split(/([.!?])/).filter(Boolean);
+    // parts like: ["Sentence one", ".", " Sentence two", ".", " Sentence three", "."]
+    let out = "";
+    let count = 0;
+
+    for (let i = 0; i < parts.length; i += 2) {
+      const chunk = (parts[i] || "").trim();
+      const punct = (parts[i + 1] || "").trim();
+      if (!chunk) continue;
+
+      out += (out ? " " : "") + chunk + (punct || ".");
+      count += 1;
+
+      if (count >= Math.min(2, sentenceTarget)) break;
+    }
+
+    return out.trim();
   }
 
   function startsWithEmployeeName(text) {
@@ -99,77 +123,56 @@ module.exports = async function handler(req, res) {
     return (cfg.softAvoid || []).some((p) => t.includes(String(p).toLowerCase()));
   }
 
-  function isGood(text) {
+  function isAcceptable(text) {
     const raw = (text || "").trim();
     if (!raw) return false;
 
-    const sentences = countSentences(raw);
-    if (sentences < 1 || sentences > 2) return false;
-
-    if (hasForbiddenPunctuation(raw)) return false;
+    // Keep these two rules because they really help quality
     if (startsWithEmployeeName(raw)) return false;
     if (startsWithBoringStoryOpener(raw)) return false;
 
-    // Keep Will’s softAvoid behavior
+    // Keep Will’s special “don’t say these” vibe
     if (containsSoftAvoid(raw)) return false;
 
     return true;
   }
 
-  function pick(arr) {
-    return arr[Math.floor(Math.random() * arr.length)];
-  }
-
-  // Variation: mostly 1 sentence, sometimes 2
-  const wantTwoSentences = Math.random() < 0.25;
-  const sentenceTarget = wantTwoSentences ? 2 : 1;
-
   function buildPrompt() {
     const focusA = pick(cfg.tokens);
     const focusB = pick(cfg.tokens);
 
-    // Frames help it “flow” without repeating the same structure
-    const oneSentenceFrames = [
-      `Write one sentence that starts with a simple positive result, mention "${employee}" later, and include one ${cfg.label} detail.`,
-      `Write one sentence that sounds like a real customer, mention "${employee}" once, and include a small ${cfg.label} detail.`,
-      `Write one sentence that starts with a short compliment, then mention "${employee}" later and include a ${cfg.label} detail.`,
-      `Write one sentence that sounds casual and normal, mention "${employee}" once, and include one ${cfg.label} detail.`
+    const frames1 = [
+      `Write one sentence that sounds like a real customer. Mention "${employee}" once, not at the start. Include a small ${cfg.label} detail.`,
+      `Write one sentence with a simple result first, then mention "${employee}" later. Include a ${cfg.label} detail.`
     ];
 
-    const twoSentenceFrames = [
-      `Write two short sentences. First sentence is general and positive. Second sentence mentions "${employee}" and includes one ${cfg.label} detail.`,
-      `Write two short sentences. Mention "${employee}" in the second sentence, not the first. Keep it natural.`,
-      `Write two short sentences that do not sound scripted. Include one ${cfg.label} detail total.`
+    const frames2 = [
+      `Write two short sentences. Mention "${employee}" in the second sentence. Include one ${cfg.label} detail total.`,
+      `Write two short sentences that sound natural. Mention "${employee}" once, not at the start.`
     ];
 
-    const frame = sentenceTarget === 1 ? pick(oneSentenceFrames) : pick(twoSentenceFrames);
+    const frame = sentenceTarget === 1 ? pick(frames1) : pick(frames2);
 
     return `
 Write a short Google review draft.
 
-Hard rules:
+Rules:
 - ${sentenceTarget} sentence${sentenceTarget === 2 ? "s" : ""} only.
-- Do NOT use semicolons.
-- Do NOT use colons.
-- Do NOT use dashes of any kind.
-- Do NOT start the review with "${employee}".
-- Do NOT start with a long story like "After a road trip" or "After hauling gear".
+- Do not start with "${employee}".
+- Do not start with a long story opener like "After..." or "Last week...".
+- Do NOT mention the business name.
 
 Context:
 - Business type: ${cfg.label}
-- Employee name: "${employee}"
-- Do NOT mention the business name.
+- Employee: "${employee}"
 
-What to include:
+Include:
 - Mention "${employee}" once.
-- Include one small relevant detail using words like "${focusA}" or "${focusB}".
-- Keep it natural and not salesy.
+- Add one small relevant detail using words like "${focusA}" or "${focusB}".
 
-Optional notes (use lightly if helpful, do not copy exactly):
+Optional notes (use lightly):
 ${notes || "(none)"}
 
-Extra:
-- Avoid repeating common phrases like "worked his magic".
 Return ONLY the review text.
     `.trim();
   }
@@ -177,69 +180,77 @@ Return ONLY the review text.
   async function generateOnce() {
     const prompt = buildPrompt();
 
-    const resp = await fetch("https://api.openai.com/v1/chat/completions", {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json"
-      },
-      body: JSON.stringify({
-        model: "gpt-4o-mini",
-        messages: [
-          {
-            role: "system",
-            content:
-              "You write short, human sounding Google reviews. Keep them varied, casual, and believable. No promotional tone. Follow punctuation rules exactly."
-          },
-          { role: "user", content: prompt }
-        ],
-        temperature: 1.15,
-        max_tokens: 90
-      })
-    });
+    // Add a short timeout so it never feels “stuck”
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 8000);
 
-    const textBody = await resp.text();
-    if (!resp.ok) throw new Error(textBody);
+    try {
+      const resp = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json"
+        },
+        signal: controller.signal,
+        body: JSON.stringify({
+          model: "gpt-4o-mini",
+          messages: [
+            {
+              role: "system",
+              content:
+                "Write short, human sounding Google reviews. Vary structure. No promotional tone."
+            },
+            { role: "user", content: prompt }
+          ],
+          temperature: 1.1,
+          max_tokens: 90
+        })
+      });
 
-    const data = JSON.parse(textBody);
-    return (data?.choices?.[0]?.message?.content || "").trim();
+      const textBody = await resp.text();
+      if (!resp.ok) throw new Error(textBody);
+
+      const data = JSON.parse(textBody);
+      return (data?.choices?.[0]?.message?.content || "").trim();
+    } finally {
+      clearTimeout(timeout);
+    }
   }
 
   try {
     let review = "";
 
-    // More tries reduces fallback usage
-    for (let attempt = 0; attempt < 12; attempt++) {
+    // Only 3 tries. Much faster.
+    for (let attempt = 0; attempt < 3; attempt++) {
       review = await generateOnce();
-      if (isGood(review)) break;
+
+      // Sanitize instead of rejecting
+      review = sanitizePunctuation(review);
+      review = trimToTwoSentences(review);
+
+      if (isAcceptable(review)) break;
     }
 
-    // --- Randomized fallback (so it never repeats) ---
-    if (!isGood(review)) {
-      if (type === "solar") {
-        const solarFallback1 = [
-          `Really glad I got clear info about solar. ${employee} made the quote and options easy to understand.`,
-          `Good experience learning about solar. ${employee} answered my questions and explained the estimate clearly.`,
-          `Solar info was straightforward and helpful. ${employee} explained pricing and next steps in a simple way.`,
-          `Happy with the solar info I got. ${employee} explained the quote and timeline in a way that made sense.`,
-          `It was easy to understand the solar options. ${employee} explained the estimate and process clearly.`
-        ];
+    // Final safety sanitize
+    review = sanitizePunctuation(review);
+    review = trimToTwoSentences(review);
 
-        const solarFallback2 = [
-          `Helpful solar info, ${employee} made the quote easy to understand.`,
-          `Good solar conversation, ${employee} explained the estimate clearly.`,
-          `Simple and clear solar info, ${employee} answered my questions.`,
-          `Easy solar explanation, ${employee} made the pricing make sense.`
-        ];
+    // Random fallback (fast, never repeats)
+    if (!isAcceptable(review)) {
+      const solarFallback = [
+        `Really glad I got clear info about solar. ${employee} made the quote feel simple.`,
+        `The solar info was easy to follow. ${employee} answered my questions and explained the estimate.`,
+        `Good solar conversation. ${employee} explained options and pricing in a simple way.`
+      ];
 
-        const pool = sentenceTarget === 2 ? solarFallback1 : solarFallback2;
-        review = pick(pool);
-      } else {
-        // Keep Will’s detailing fallback style unchanged
-        review = sentenceTarget === 2
-          ? `My car looks great after the detail. ${employee} did a solid job on the interior and finish.`
-          : `My car looks great after the detail, ${employee} did a solid job on the interior and finish.`;
-      }
+      const detailFallback = [
+        `My car looks great after the detail. ${employee} did a solid job on the interior.`,
+        `Really happy with how clean my car turned out. ${employee} did a great job.`
+      ];
+
+      review = type === "solar" ? pick(solarFallback) : pick(detailFallback);
+      review = sanitizePunctuation(review);
+      review = trimToTwoSentences(review);
     }
 
     return res.status(200).json({ review });
