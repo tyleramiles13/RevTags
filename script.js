@@ -2,17 +2,25 @@
   const card = document.querySelector(".card");
   if (!card) return;
 
-  // --- Read data from the card ---
+  // --- Support BOTH old pages (Will) and new pages (Swave) ---
+  // Old Will page uses:
+  //   data-business, data-employee, data-google-url
+  // New Swave pages use:
+  //   data-employee, data-business-type, data-service-notes, data-google-review-url
+
   const business = card.dataset.business || "the business";
   const employee = card.dataset.employee || "the employee";
 
-  // Google review link (supports old + new pages)
+  // New fields (optional)
+  const businessType = (card.dataset.businessType || "").trim();   // data-business-type
+  const serviceNotes = (card.dataset.serviceNotes || "").trim();   // data-service-notes
+
+  // Google review link (prefer new "write review" link, fallback to old link)
   const googleUrl =
-    card.dataset.googleReviewUrl ||
-    card.dataset.googleUrl ||
+    card.dataset.googleReviewUrl || // data-google-review-url (new)
+    card.dataset.googleUrl ||       // data-google-url (old)
     "#";
 
-  // Elements (only used if present)
   const employeeNameEl = document.getElementById("employeeName");
   const businessNameEl = document.getElementById("businessName");
   const googleBtn = document.getElementById("googleBtn");
@@ -21,10 +29,7 @@
   const copyBtn = document.getElementById("copyBtn");
   const reviewText = document.getElementById("reviewText");
 
-  // Optional: customer detail input (recommended)
-  const detailInput = document.getElementById("detailInput");
-
-  // Fill visible fields
+  // Fill visible fields (only if those elements exist on the page)
   if (employeeNameEl) employeeNameEl.textContent = employee;
   if (businessNameEl) businessNameEl.textContent = business;
   if (googleBtn) googleBtn.href = googleUrl;
@@ -51,37 +56,38 @@
     alert(msg);
   }
 
-  // --- Draft with AI ---
+  // --- Draft with REAL AI (matches your current /api/draft.js) ---
   async function draftWithAI() {
     setDraftLoading(true);
 
     try {
-      const detail = (detailInput?.value || "").trim();
-
       const res = await fetch("/api/draft", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          business,
           employee,
-          detail
+          businessType,
+          serviceNotes
         })
       });
 
-      const data = await res.json();
+      // Read response safely
+      const data = await res.json().catch(() => null);
 
       if (!res.ok) {
-        throw new Error(data?.error || "AI request failed");
+        // If API returned JSON error
+        const msg = data?.error || "AI request failed";
+        throw new Error(msg);
       }
 
-      if (!data.review) {
+      if (!data || !data.review) {
         throw new Error("No review returned from AI.");
       }
 
-      reviewText.value = data.review;
+      if (reviewText) reviewText.value = data.review;
     } catch (err) {
       console.error(err);
-      flashError(err.message || "Couldn’t generate a review. Try again.");
+      flashError(err.message || "Couldn’t generate a review. Try again in a moment.");
     } finally {
       setDraftLoading(false);
     }
@@ -89,30 +95,38 @@
 
   // --- Copy (works on iPhone + desktop) ---
   async function copyReview() {
-    const text = (reviewText.value || "").trim();
+    const text = (reviewText?.value || "").trim();
+
     if (!text) {
       flashError("Generate a review first.");
       return;
     }
 
+    // Best modern method (works on HTTPS + user tap)
     try {
       if (navigator.clipboard && window.isSecureContext) {
         await navigator.clipboard.writeText(text);
         setCopiedState();
         return;
       }
-    } catch {}
+    } catch (e) {
+      // fall through to fallback
+    }
 
-    // Fallback
+    // Fallback (older iOS / weird permissions)
     try {
       reviewText.focus();
       reviewText.select();
-      reviewText.setSelectionRange(0, reviewText.value.length);
+      reviewText.setSelectionRange(0, reviewText.value.length); // iOS support
       const ok = document.execCommand("copy");
-      if (ok) setCopiedState();
-      else throw new Error();
-    } catch {
-      flashError("Press and hold the text, then tap Copy.");
+      if (ok) {
+        setCopiedState();
+      } else {
+        throw new Error("execCommand copy returned false");
+      }
+    } catch (e) {
+      console.error(e);
+      flashError("Copy didn’t work on this device. Press and hold the text, then tap Copy.");
     }
   }
 
@@ -120,4 +134,5 @@
   if (draftBtn) draftBtn.addEventListener("click", draftWithAI);
   if (copyBtn) copyBtn.addEventListener("click", copyReview);
 })();
+
 
