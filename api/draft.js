@@ -1,4 +1,5 @@
 module.exports = async function handler(req, res) {
+  // --- Only allow POST ---
   if (req.method !== "POST") {
     res.statusCode = 405;
     return res.json({ error: "Method not allowed" });
@@ -27,8 +28,20 @@ module.exports = async function handler(req, res) {
   if (!type) {
     const notesLower = (serviceNotes || "").toLowerCase();
     const solarHints = [
-      "solar", "panel", "panels", "quote", "pricing", "bill", "savings",
-      "financing", "install", "installation", "estimate", "kw", "utility"
+      "solar",
+      "panel",
+      "panels",
+      "quote",
+      "pricing",
+      "bill",
+      "savings",
+      "financing",
+      "install",
+      "installation",
+      "estimate",
+      "kw",
+      "utility",
+      "roof",
     ];
     const looksSolar = solarHints.some((w) => notesLower.includes(w));
     type = looksSolar ? "solar" : "auto_detailing";
@@ -38,29 +51,76 @@ module.exports = async function handler(req, res) {
   const rules = {
     auto_detailing: {
       label: "an auto detailing service",
+      // IMPORTANT: This was missing in your file and was causing crashes.
+      mustIncludeAny: [
+        "interior",
+        "exterior",
+        "vacuum",
+        "vacuumed",
+        "spotless",
+        "shiny",
+        "clean",
+        "fresh",
+        "smelled",
+        "wax",
+        "polish",
+        "stains",
+        "steam",
+        "dashboard",
+        "seats",
       ],
       mustMentionAny: ["car", "vehicle"],
       avoidStarts: [
-        "just had", "just got", "i just",
-        "had a great", "had a good", "had a great experience", "had a great consultation",
-        "great experience", "great consultation"
-      ]
+        "just had",
+        "just got",
+        "i just",
+        "had a great",
+        "had a good",
+        "had a great experience",
+        "had a great consultation",
+        "great experience",
+        "great consultation",
+      ],
+      // Optional: keep this empty for detailing (or add phrases later)
+      avoidPhrases: [],
     },
+
     solar: {
       label: "a solar conversation / consultation (often door-to-door)",
       // Make sure the review actually sounds like solar (not generic service talk)
       mustIncludeAny: [
-        "solar", "panel", "panels", "quote", "pricing", "bill", "savings",
-        "financing", "estimate", "install", "installation", "process", "utility", "roof"
+        "solar",
+        "panel",
+        "panels",
+        "quote",
+        "pricing",
+        "bill",
+        "savings",
+        "financing",
+        "estimate",
+        "install",
+        "installation",
+        "process",
+        "utility",
+        "roof",
+        "monthly",
       ],
       mustMentionAny: [],
       // Ban the repetitive openers you’re seeing
       avoidStarts: [
-        "just had", "just got", "i just",
-        "had a great", "had a good", "had a great experience", "had a great consultation",
-        "great experience", "great consultation",
-        "had a great conversation", "had a great meeting",
-        "had a great", "had a good"
+        "just had",
+        "just got",
+        "i just",
+        "had a great",
+        "had a good",
+        "had a great experience",
+        "had a great consultation",
+        "great experience",
+        "great consultation",
+        "had a great conversation",
+        "had a great meeting",
+        "had a great",
+        "had a good",
       ],
       // Common robot phrases to avoid repeating over and over
       avoidPhrases: [
@@ -68,16 +128,25 @@ module.exports = async function handler(req, res) {
         "made the whole process",
         "helped me understand my potential savings",
         "really appreciated",
-        "took the time to explain"
-      ]
-    }
+        "took the time to explain",
+      ],
+    },
   };
 
   const cfg = rules[type] || rules.auto_detailing;
 
+  // Safety: ensure arrays always exist
+  const mustIncludeAny = Array.isArray(cfg.mustIncludeAny) ? cfg.mustIncludeAny : [];
+  const mustMentionAny = Array.isArray(cfg.mustMentionAny) ? cfg.mustMentionAny : [];
+  const avoidStarts = Array.isArray(cfg.avoidStarts) ? cfg.avoidStarts : [];
+  const avoidPhrases = Array.isArray(cfg.avoidPhrases) ? cfg.avoidPhrases : [];
+
   // --- Helpers ---
   function countSentences(text) {
-    const parts = (text || "").trim().split(/[.!?]+/).filter(Boolean);
+    const parts = (text || "")
+      .trim()
+      .split(/[.!?]+/)
+      .filter(Boolean);
     return parts.length;
   }
 
@@ -99,20 +168,20 @@ module.exports = async function handler(req, res) {
   function startsWithBannedOpener(text) {
     const t = (text || "").trim().toLowerCase();
     if (!t) return false;
-    return cfg.avoidStarts.some((s) => t.startsWith(s));
+    return avoidStarts.some((s) => t.startsWith(s));
   }
 
   function containsAvoidPhrases(text) {
-    if (!cfg.avoidPhrases || cfg.avoidPhrases.length === 0) return false;
+    if (!avoidPhrases.length) return false;
     const t = (text || "").toLowerCase();
-    return cfg.avoidPhrases.some((p) => t.includes(p.toLowerCase()));
+    return avoidPhrases.some((p) => t.includes(String(p).toLowerCase()));
   }
 
   function isGood(text) {
     const t = (text || "").toLowerCase().trim();
     if (!t) return false;
 
-    // Hard cap: 2 sentences max (your request)
+    // Hard cap: 2 sentences max
     if (countSentences(t) > 2) return false;
 
     // Don’t always start with employee name
@@ -125,12 +194,14 @@ module.exports = async function handler(req, res) {
     if (containsAvoidPhrases(t)) return false;
 
     // Must include a relevant keyword for that business type
-    const hasKeyword = cfg.mustIncludeAny.some((k) => t.includes(k));
-    if (!hasKeyword) return false;
+    if (mustIncludeAny.length > 0) {
+      const hasKeyword = mustIncludeAny.some((k) => t.includes(String(k).toLowerCase()));
+      if (!hasKeyword) return false;
+    }
 
     // Optionally require certain mention words
-    if (cfg.mustMentionAny.length > 0) {
-      const mentions = cfg.mustMentionAny.some((w) => t.includes(w));
+    if (mustMentionAny.length > 0) {
+      const mentions = mustMentionAny.some((w) => t.includes(String(w).toLowerCase()));
       if (!mentions) return false;
     }
 
@@ -148,14 +219,14 @@ module.exports = async function handler(req, res) {
       "focus on the customer feeling informed (not sold)",
       "focus on options: comparing choices or next steps",
       "focus on practical details: estimate/roof/utility bill/install timeline",
-      "focus on the rep being normal and easy to talk to (but still include a solar keyword)"
+      "focus on the rep being normal and easy to talk to (but still include a solar keyword)",
     ];
 
     const detailingAngles = [
       "focus on how clean the interior felt",
       "focus on the exterior shine / spotless finish",
       "focus on a before/after difference",
-      "focus on small details being taken care of"
+      "focus on small details being taken care of",
     ];
 
     const anglePool = type === "solar" ? solarAngles : detailingAngles;
@@ -168,7 +239,8 @@ module.exports = async function handler(req, res) {
     const chosenStyle = styles[Math.floor(Math.random() * styles.length)];
 
     return `
-Write a Google review that is MAX 2 sentences and does not have anything other than a period, exclamation point or coma for punctuation.
+Write a Google review that is MAX 2 sentences.
+Keep punctuation simple (periods, commas, and one exclamation is okay).
 
 Context:
 - This is for ${cfg.label}.
@@ -177,8 +249,8 @@ Context:
 
 Hard requirements:
 - Mention "${employee}" somewhere in the review, but DO NOT start the review with "${employee}".
-- The review MUST include at least one of these words: ${cfg.mustIncludeAny.join(", ")}.
-${cfg.mustMentionAny.length ? `- Also mention: ${cfg.mustMentionAny.join(" or ")}.` : ""}
+- The review MUST include at least one of these words: ${mustIncludeAny.join(", ")}.
+${mustMentionAny.length ? `- Also mention: ${mustMentionAny.join(" or ")}.` : ""}
 
 Banned openings:
 - Do NOT start with "Had a great", "Had a great experience", "Had a great consultation", "Great experience", or similar.
@@ -186,10 +258,13 @@ Banned openings:
 - Do NOT start with the employee’s name.
 
 Avoid sounding robotic:
-- Avoid phrases like: ${cfg.avoidPhrases ? cfg.avoidPhrases.join("; ") : "none"}.
+- Avoid phrases like: ${avoidPhrases.length ? avoidPhrases.join("; ") : "none"}.
 
 Angle for this review:
 - ${angle}
+
+Structure rule:
+- ${chosenStyle}
 
 Extra context (use if helpful, do not copy verbatim):
 ${notes || "(none)"}
@@ -205,17 +280,21 @@ Write ONLY the review text.
       method: "POST",
       headers: {
         Authorization: `Bearer ${apiKey}`,
-        "Content-Type": "application/json"
+        "Content-Type": "application/json",
       },
       body: JSON.stringify({
         model: "gpt-4o-mini",
         messages: [
-          { role: "system", content: "You write short, generic and vague, human-sounding Google reviews. No promotional tone. Not robotic, and sounds written by a high schooler." },
-          { role: "user", content: prompt }
+          {
+            role: "system",
+            content:
+              "Write short, human-sounding Google reviews. Not promotional, not robotic. Vary wording and structure each time. Do not mention the business name. Keep it believable.",
+          },
+          { role: "user", content: prompt },
         ],
         temperature: 1.0,
-        max_tokens: 85
-      })
+        max_tokens: 85,
+      }),
     });
 
     const textBody = await resp.text();
@@ -245,8 +324,9 @@ Write ONLY the review text.
 
     return res.status(200).json({ review });
   } catch (e) {
-    console.error(e);
+    console.error("Draft API error:", e);
     res.statusCode = 500;
     return res.json({ error: "AI generation failed" });
   }
 };
+
