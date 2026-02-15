@@ -24,8 +24,13 @@ module.exports = async function handler(req, res) {
   if (type === "auto-detailing") type = "auto_detailing";
   if (type === "detail" || type === "detailing") type = "auto_detailing";
 
-  // ✅ NEW: Nails normalization (ADDED ONLY)
-  if (type === "nail" || type === "nails" || type === "nail_salon" || type === "nail-salon") {
+  // ✅ Nails normalization (ADDED ONLY)
+  if (
+    type === "nail" ||
+    type === "nails" ||
+    type === "nail_salon" ||
+    type === "nail-salon"
+  ) {
     type = "nails";
   }
 
@@ -39,14 +44,12 @@ module.exports = async function handler(req, res) {
   }
 
   // Solar: ALWAYS 1 sentence template
-  // Nails: ALWAYS 1 sentence template (NEW)
+  // Nails: ALWAYS 1 sentence template
   // Detailing: mostly 1, sometimes 2 (KEEP existing behavior)
   const sentenceTarget =
-    type === "solar" ? 1 :
-    type === "nails" ? 1 :
-    (Math.random() < 0.25 ? 2 : 1);
+    type === "solar" ? 1 : type === "nails" ? 1 : Math.random() < 0.25 ? 2 : 1;
 
-  // Remove forbidden punctuation
+  // Remove forbidden punctuation (KEEP existing behavior)
   function sanitize(text) {
     return String(text || "").replace(/[;:—–-]/g, "").trim();
   }
@@ -88,9 +91,16 @@ module.exports = async function handler(req, res) {
   function startsWithStory(text) {
     const t = String(text || "").trim().toLowerCase();
     const banned = [
-      "after ", "after a ", "after an ", "after the ",
-      "last week", "yesterday", "this weekend",
-      "when i", "when we", "on my way"
+      "after ",
+      "after a ",
+      "after an ",
+      "after the ",
+      "last week",
+      "yesterday",
+      "this weekend",
+      "when i",
+      "when we",
+      "on my way",
     ];
     return banned.some((s) => t.startsWith(s));
   }
@@ -113,16 +123,33 @@ module.exports = async function handler(req, res) {
     "answered all my questions",
     "solar conversation",
     "conversation",
-    "consultation"
+    "consultation",
   ];
 
-  // ✅ NEW: Nails banned phrases (kept light so it won’t fallback a lot)
+  // Nails banned phrases (KEEP light; ADD “cambria design” type weirdness guards)
   const nailsBannedPhrases = [
     "after a long day",
     "after a long week",
     "after work",
     "roadtrip",
-    "hauling"
+    "hauling",
+
+    // ✅ NEW nails weirdness guards
+    "cambria design",
+    "cambria color",
+    "the cambria",
+    "in cambria",
+    "spots in cambria",
+    "favorite spots",
+    "country",
+    "city",
+    "vibe here",
+    "staff",
+    "chatting with",
+    "talking with",
+    "thanks to",
+    "thank you",
+    "thanks",
   ];
 
   function containsBannedPhrase(text, bannedList) {
@@ -159,7 +186,7 @@ module.exports = async function handler(req, res) {
     return true;
   }
 
-  // ✅ NEW: Nails acceptability
+  // ✅ Nails acceptability (UPDATED)
   function nailsIsAcceptable(text) {
     const t = String(text || "").trim();
     if (!t) return false;
@@ -172,20 +199,22 @@ module.exports = async function handler(req, res) {
     // Must mention employee once somewhere
     if (!low.includes(String(employee).toLowerCase())) return false;
 
-    // Must hint nails without being overly specific
-    // (we allow either "nails" or "nail")
+    // Must hint nails
     if (!(low.includes("nails") || low.includes("nail"))) return false;
 
-    // Keep it to 1 sentence
+    // Must be 1 sentence
     const sentenceCount = t.split(/[.!?]+/).filter(Boolean).length;
     if (sentenceCount > 1) return false;
 
-    // Light ban list to prevent weird story openers showing up mid-sentence
+    // Ban weird / robotic phrases
     if (containsBannedPhrase(t, nailsBannedPhrases)) return false;
+
+    // ✅ NEW: Ban the word "and" entirely for nails
+    if (low.includes(" and ")) return false;
 
     // Not too short
     const wc = t.split(/\s+/).filter(Boolean).length;
-    if (wc < 8) return false;
+    if (wc < 7) return false;
 
     return true;
   }
@@ -204,7 +233,7 @@ module.exports = async function handler(req, res) {
       `Write ONE short sentence that sounds like a real Google review starter and is easy for a customer to edit. Mention "${employee}" once, not at the start, and include the word "solar" once.`,
       `Write ONE sentence that feels like a genuine review but stays general. Mention "${employee}" once (not first) and include "solar" once.`,
       `Write ONE sentence that is positive and vague so the customer can personalize it. Mention "${employee}" once (not first) and include "solar" once.`,
-      `Write ONE sentence that sounds normal and not robotic. Mention "${employee}" once, not at the start, and include "solar" once.`
+      `Write ONE sentence that sounds normal and not robotic. Mention "${employee}" once, not at the start, and include "solar" once.`,
     ];
 
     return `
@@ -231,12 +260,12 @@ Return ONLY the review text.
     `.trim();
   }
 
-  // ✅ NEW: Nails prompt builder
+  // ✅ Nails prompt builder (UPDATED to fix Cambria + remove "and")
   function buildPromptNails() {
     const patterns = [
-      `Write ONE short sentence that sounds like a real review template. Mention "${employee}" once (not first) and include the word "nails" or "nail" once.`,
-      `Write ONE sentence that is positive and general so a customer can edit it. Mention "${employee}" once (not first) and include "nails" or "nail" once.`,
-      `Write ONE sentence that feels human and casual, not salesy. Mention "${employee}" once (not first) and include "nails" or "nail" once.`
+      `Write ONE short review template someone could quickly edit. Mention "${employee}" once (not first). Include the word "nails".`,
+      `Write ONE simple sentence that sounds like a real person. Mention "${employee}" once (not first). Include "nails".`,
+      `Write ONE short casual review starter. Mention "${employee}" once (not first). Include "nails".`,
     ];
 
     return `
@@ -245,22 +274,18 @@ Write a Google review draft.
 Hard rules:
 - Exactly ONE sentence.
 - Do NOT start with "${employee}".
-- Do NOT start with a story, location, or conversation.
-- Do NOT mention any city names or places.
+- "${employee}" is a PERSON'S NAME only (not a place, not a style, not a design).
+- Do NOT mention any city, country, location, "vibe", or staff.
 - Do NOT mention the business name.
 - Mention "${employee}" exactly once.
-- Include the word "nails" or "nail" at least once.
-- Keep it short, simple, and generic like a template the customer can edit.
-- No storytelling, no chatting, no describing events.
+- Include the word "nails" at least once.
+- Keep it general like a template so the customer can edit it.
+- Do NOT use the word "and".
+- Do NOT use phrases like "thanks", "thank you", or "thanks to".
+- No storytelling, no chatting, no describing conversations.
 - Do NOT use semicolons, colons, or any dashes.
 
-Tone:
-- Short, casual, normal.
-- Sounds like a basic review starter.
-
-Return ONLY the review text.
-
-Optional notes (use lightly for vibe only, do not add specific claims):
+Optional notes (vibe only, do NOT add specific claims):
 ${notes || "(none)"}
 
 Instruction:
@@ -302,7 +327,7 @@ Return ONLY the review text.
         method: "POST",
         headers: {
           Authorization: `Bearer ${apiKey}`,
-          "Content-Type": "application/json"
+          "Content-Type": "application/json",
         },
         signal: controller.signal,
         body: JSON.stringify({
@@ -311,13 +336,13 @@ Return ONLY the review text.
             {
               role: "system",
               content:
-                "Write short, human sounding Google reviews. Keep them casual and believable. Avoid repeating the same phrasing."
+                "Write short, human sounding Google reviews. Keep them casual and believable. Avoid repeating the same phrasing.",
             },
-            { role: "user", content: prompt }
+            { role: "user", content: prompt },
           ],
           temperature: temp,
-          max_tokens: maxTokens
-        })
+          max_tokens: maxTokens,
+        }),
       });
 
       const textBody = await resp.text();
@@ -345,7 +370,7 @@ Return ONLY the review text.
       review = await generate(
         prompt,
         isSolar ? 1.25 : isNails ? 1.15 : 1.05,
-        isSolar ? 80 : isNails ? 80 : 95
+        isSolar ? 80 : isNails ? 70 : 95
       );
 
       review = sanitize(review);
@@ -373,20 +398,20 @@ Return ONLY the review text.
         `Thanks to ${employee} for being professional and helpful with solar.`,
         `I had a positive experience and ${employee} was great during the solar visit.`,
         `Everything felt professional and ${employee} did a great job with solar.`,
-        `Happy with the experience and ${employee} was friendly and helpful about solar.`
+        `Happy with the experience and ${employee} was friendly and helpful about solar.`,
       ];
       review = sanitize(pick(solarFallback));
       review = trimToSentences(review, 1);
     }
 
-    // ✅ NEW: Nails fallback
+    // ✅ Nails fallback (UPDATED to avoid “and”, “thanks”, Cambria confusion)
     if (isNails && !nailsIsAcceptable(review)) {
       const nailsFallback = [
-        `My nails came out so cute and I really appreciate ${employee}.`,
-        `I love how my nails turned out and ${employee} was great.`,
-        `So happy with my nails and ${employee} did an awesome job.`,
-        `My nails look amazing and I am really glad I booked with ${employee}.`,
-        `Really happy with my nails and ${employee} made it a great experience.`
+        `My nails turned out so cute ${employee} did an awesome job.`,
+        `So happy with my nails ${employee} nailed the look I wanted.`,
+        `Love my nails today ${employee} did a great job.`,
+        `My nails look amazing ${employee} was so good.`,
+        `Really happy with my nails ${employee} did great work.`,
       ];
       review = sanitize(pick(nailsFallback));
       review = trimToSentences(review, 1);
@@ -409,4 +434,3 @@ Return ONLY the review text.
     return res.json({ error: "AI generation failed" });
   }
 };
-
