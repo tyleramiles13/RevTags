@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Leave a Review</title>
+
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+
+<div class="card"
+  data-employee="Whitney"
+  data-business="Urban Oasis Massage & Wellness"
+  data-business-type="massage"
+  data-google-review-url="https://www.massagebook.com/reviewspublic/leavereview/Q2hxaHM2bUplRVB6L1pxSXhsUnVaekZ6WEE0TDJiWlhlSWwvbFJ4SW9Hak5nOFRuTHRYWjJ1bWJWRXl4N1htQjArRVRUbU1oT1o4NWV4T0ZEaHUvQUE9PQ==">
+
+  <h1>Leave Whitney a quick review</h1>
+  <p class="business">Urban Oasis Massage & Wellness</p>
+
+  <button id="draftBtn">Draft review with AI</button>
+
+  <textarea
+    id="reviewText"
+    placeholder="Your review will appear here..."
+    rows="5"
+  ></textarea>
+
+  <div class="actions">
+    <button id="copyBtn">Copy review</button>
+
+    <a
+      id="googleBtn"
+      href="#"
+      target="_blank"
+      class="google-btn"
+    >
+      Open Review Page
+    </a>
+  </div>
+
+  <p class="note">
+    After tapping, paste your review and finish editing it on the review page before submitting.
+  </p>
+</div>
+
+<script src="../script.js"></script>
+
+<script>
+(function () {
+  const reviewText = document.getElementById("reviewText");
+  const googleBtn = document.getElementById("googleBtn");
+  const draftBtn = document.getElementById("draftBtn");
+  const card = document.querySelector(".card");
+
+  if (!reviewText || !googleBtn || !card) return;
+
+  const reviewUrl =
+    card.dataset.googleReviewUrl ||
+    card.dataset.googleUrl ||
+    "#";
+
+  googleBtn.href = reviewUrl;
+
+  // -------- TEXTBOX LOCK AFTER AI FILLS --------
+  let watcher = null;
+
+  function lockBox() {
+    reviewText.readOnly = true;
+    reviewText.style.background = "#f6f6f6";
+    reviewText.style.cursor = "default";
+  }
+
+  function unlockBox() {
+    reviewText.readOnly = false;
+    reviewText.style.background = "";
+    reviewText.style.cursor = "";
+  }
+
+  function startWatcher() {
+    if (watcher) clearInterval(watcher);
+
+    watcher = setInterval(() => {
+      if ((reviewText.value || "").trim().length > 0) {
+        lockBox();
+        clearInterval(watcher);
+        watcher = null;
+      }
+    }, 250);
+  }
+
+  startWatcher();
+
+  if (draftBtn) {
+    draftBtn.addEventListener("click", () => {
+      unlockBox();
+      startWatcher();
+    });
+  }
+
+  // -------- SAFE REDIRECT DELAY --------
+  googleBtn.addEventListener("click", function (e) {
+    const url = googleBtn.getAttribute("href");
+    if (!url || url === "#") return;
+
+    e.preventDefault();
+
+    const original = googleBtn.textContent;
+    googleBtn.textContent = "Opening…";
+    googleBtn.style.pointerEvents = "none";
+
+    const newWin = window.open("about:blank", "_blank");
+    const delayMs = 2200;
+
+    setTimeout(() => {
+      try {
+        if (newWin && !newWin.closed) {
+          newWin.location.href = url;
+        } else {
+          window.location.href = url;
+        }
+      } finally {
+        googleBtn.textContent = original;
+        googleBtn.style.pointerEvents = "";
+      }
+    }, delayMs);
+  });
+})();
+</script>
+
+</body>
+</html>

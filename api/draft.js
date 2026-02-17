@@ -25,10 +25,20 @@ module.exports = async function handler(req, res) {
   if (type === "detail" || type === "detailing") type = "auto_detailing";
 
   // Added types (do not impact Will/Swave unless their page sends these values)
-  if (type === "nail" || type === "nails" || type === "nail_salon" || type === "nail-salon") {
+  if (
+    type === "nail" ||
+    type === "nails" ||
+    type === "nail_salon" ||
+    type === "nail-salon"
+  ) {
     type = "nails";
   }
-  if (type === "massage" || type === "massages" || type === "massage_therapy" || type === "massage-therapy") {
+  if (
+    type === "massage" ||
+    type === "massages" ||
+    type === "massage_therapy" ||
+    type === "massage-therapy"
+  ) {
     type = "massage";
   }
 
@@ -47,14 +57,22 @@ module.exports = async function handler(req, res) {
   // Massage: ALWAYS 1 sentence
   // Detailing: mostly 1, sometimes 2
   const sentenceTarget =
-    type === "solar" ? 1 :
-    type === "nails" ? 1 :
-    type === "massage" ? 1 :
-    (Math.random() < 0.25 ? 2 : 1);
+    type === "solar"
+      ? 1
+      : type === "nails"
+      ? 1
+      : type === "massage"
+      ? 1
+      : Math.random() < 0.25
+      ? 2
+      : 1;
 
   // Remove forbidden punctuation
   function sanitize(text) {
-    return String(text || "").replace(/[;:—–-]/g, "").replace(/\s+/g, " ").trim();
+    return String(text || "")
+      .replace(/[;:—–-]/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
   }
 
   function trimToSentences(text, max) {
@@ -108,9 +126,16 @@ module.exports = async function handler(req, res) {
   function startsWithStory(text) {
     const t = String(text || "").trim().toLowerCase();
     const banned = [
-      "after ", "after a ", "after an ", "after the ",
-      "last week", "yesterday", "this weekend",
-      "when i", "when we", "on my way"
+      "after ",
+      "after a ",
+      "after an ",
+      "after the ",
+      "last week",
+      "yesterday",
+      "this weekend",
+      "when i",
+      "when we",
+      "on my way",
     ];
     return banned.some((s) => t.startsWith(s));
   }
@@ -140,7 +165,7 @@ module.exports = async function handler(req, res) {
     "answered all my questions",
     "solar conversation",
     "conversation",
-    "consultation"
+    "consultation",
   ];
 
   function solarIsAcceptable(text) {
@@ -170,7 +195,7 @@ module.exports = async function handler(req, res) {
       `Write ONE short sentence that sounds like a real Google review starter and is easy for a customer to edit.`,
       `Write ONE sentence that feels genuine but stays general so the customer can personalize it.`,
       `Write ONE sentence that sounds normal and not robotic and leaves room for the customer to add details.`,
-      `Write ONE sentence that is positive and vague like a template someone could tweak.`
+      `Write ONE sentence that is positive and vague like a template someone could tweak.`,
     ];
 
     return `
@@ -212,8 +237,8 @@ Return ONLY the review text.
     "thanks to",
     "thank you",
 
-    // user request: stop “experience” spam
-    "experience"
+    // stop “experience” spam
+    "experience",
   ];
 
   function nailsIsAcceptable(text) {
@@ -221,12 +246,12 @@ Return ONLY the review text.
     if (!t) return false;
 
     if (startsWithName(t)) return false;
-    if (endsWithName(t)) return false; // prevents “thanks to Cambria.” type endings
+    if (endsWithName(t)) return false;
     if (startsWithStory(t)) return false;
 
     const low = t.toLowerCase();
 
-    // must mention employee once somewhere
+    // must mention employee
     if (!low.includes(String(employee).toLowerCase())) return false;
 
     // must include nail/nails
@@ -250,7 +275,7 @@ Return ONLY the review text.
       `Write ONE short sentence that sounds like a real review starter and is easy to edit.`,
       `Write ONE simple sentence that feels human and casual, not salesy.`,
       `Write ONE short sentence that someone would actually type and could tweak.`,
-      `Write ONE short and normal review template line.`
+      `Write ONE short and normal review template line.`,
     ];
 
     return `
@@ -283,25 +308,22 @@ Return ONLY the review text.
   // MASSAGE (NEW, DOES NOT AFFECT WILL/SWAVE)
   // ------------------------
   const massageBannedPhrases = [
-    // user request: no “session” spam + keep super simple
     "session",
     "experience",
 
-    // stop story openers
     "after a long day",
     "after a long week",
     "after work",
     "roadtrip",
     "hauling",
 
-    // stop overly specific claims
     "deep tissue",
     "sports massage",
     "hot stone",
     "prenatal",
     "trigger points",
     "injury",
-    "pain is gone"
+    "pain is gone",
   ];
 
   function massageIsAcceptable(text) {
@@ -332,7 +354,7 @@ Return ONLY the review text.
       `Write ONE very simple sentence that sounds like a real review starter and is easy to edit.`,
       `Write ONE short, normal sentence someone would actually type after a massage.`,
       `Write ONE short and casual review template line that feels human.`,
-      `Write ONE simple positive sentence that is not overly specific.`
+      `Write ONE simple positive sentence that is not overly specific.`,
     ];
 
     return `
@@ -369,7 +391,6 @@ Return ONLY the review text.
     if (!t) return false;
     if (startsWithName(t)) return false;
     if (startsWithStory(t)) return false;
-    // Keep it light so Will doesn’t fall back a lot
     return true;
   }
 
@@ -404,7 +425,7 @@ Return ONLY the review text.
         method: "POST",
         headers: {
           Authorization: `Bearer ${apiKey}`,
-          "Content-Type": "application/json"
+          "Content-Type": "application/json",
         },
         signal: controller.signal,
         body: JSON.stringify({
@@ -413,13 +434,13 @@ Return ONLY the review text.
             {
               role: "system",
               content:
-                "Write short, human sounding Google reviews. Keep them casual and believable. Avoid repeating the same phrasing."
+                "Write short, human sounding Google reviews. Keep them casual and believable. Avoid repeating the same phrasing.",
             },
-            { role: "user", content: prompt }
+            { role: "user", content: prompt },
           ],
           temperature: temp,
-          max_tokens: maxTokens
-        })
+          max_tokens: maxTokens,
+        }),
       });
 
       const textBody = await resp.text();
@@ -438,7 +459,6 @@ Return ONLY the review text.
     const isNails = type === "nails";
     const isMassage = type === "massage";
 
-    // retries (keep your existing pattern)
     for (let attempt = 0; attempt < 4; attempt++) {
       const prompt = isSolar
         ? buildPromptSolar()
@@ -481,7 +501,7 @@ Return ONLY the review text.
         `Thanks to ${employee} for being professional and helpful with solar.`,
         `I had a positive experience and ${employee} was great during the solar visit.`,
         `Everything felt professional and ${employee} did a great job with solar.`,
-        `Happy with the experience and ${employee} was friendly and helpful about solar.`
+        `Happy with the experience and ${employee} was friendly and helpful about solar.`,
       ];
       review = sanitize(pick(solarFallback));
       review = trimToSentences(review, 1);
@@ -494,7 +514,7 @@ Return ONLY the review text.
         `I love how my nails look and ${employee} was so helpful.`,
         `My nails came out really nice and I would recommend ${employee}.`,
         `So happy with my nails and ${employee} did awesome.`,
-        `My nails look amazing and I am glad I booked with ${employee}.`
+        `My nails look amazing and I am glad I booked with ${employee}.`,
       ];
       review = sanitize(pick(nailsFallback));
       review = trimToSentences(review, 1);
@@ -506,7 +526,7 @@ Return ONLY the review text.
         `I feel so much better after my massage and ${employee} was great.`,
         `My massage was exactly what I needed and ${employee} was amazing.`,
         `Really happy I booked a massage and ${employee} did a great job.`,
-        `My massage was really relaxing and ${employee} was great to work with.`
+        `My massage was really relaxing and ${employee} was great to work with.`,
       ];
       review = sanitize(pick(massageFallback));
       review = trimToSentences(review, 1);
