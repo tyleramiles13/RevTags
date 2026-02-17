@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Leave a Review</title>
+
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+
+<div class="card"
+  data-employee="Morgan"
+  data-business="Urban Oasis Massage & Wellness"
+  data-business-type="massage"
+  data-google-review-url="https://www.massagebook.com/reviewspublic/leavereview/Q2hxaHM2bUplRVB6L1pxSXhsUnVaekZ6WEE0TDJiWlhlSWwvbFJ4SW9Hak5nOFRuTHRYWjJ1bWJWRXl4N1htQjArRVRUbU1oT1o4NWV4T0ZEaHUvQUE9PQ==">
+
+  <h1>Leave Morgan a quick review</h1>
+  <p class="business">Urban Oasis Massage & Wellness</p>
+
+  <button id="draftBtn">Draft review with AI</button>
+
+  <textarea
+    id="reviewText"
+    placeholder="Your draft will appear here..."
+    rows="5"
+  ></textarea>
+
+  <div class="actions">
+    <button id="copyBtn">Copy review</button>
+
+    <a
+      id="googleBtn"
+      href="#"
+      target="_blank"
+      class="google-btn"
+    >
+      Open review page
+    </a>
+  </div>
+
+  <p class="note">
+    After tapping, paste your review and finish editing it on the review page before submitting.
+  </p>
+</div>
+
+<script src="../script.js"></script>
+
+<!-- RevTags Safe Delay + Locked Textbox -->
+<script>
+(function () {
+  const reviewText = document.getElementById("reviewText");
+  const googleBtn = document.getElementById("googleBtn");
+  const draftBtn = document.getElementById("draftBtn");
+  const card = document.querySelector(".card");
+  if (!reviewText || !googleBtn || !card) return;
+
+  // Use your existing dataset key for compatibility with script.js
+  const reviewUrl =
+    card.dataset.googleReviewUrl ||
+    card.dataset.googleUrl ||
+    "#";
+
+  googleBtn.href = reviewUrl;
+
+  // Lock textbox after AI fills it (encourages editing on the review page)
+  let lockedOnce = false;
+
+  function lockBox() {
+    if (lockedOnce) return;
+    lockedOnce = true;
+    reviewText.readOnly = true;
+    reviewText.style.background = "#f6f6f6";
+    reviewText.style.cursor = "default";
+  }
+
+  const watch = setInterval(() => {
+    if ((reviewText.value || "").trim().length > 0) {
+      lockBox();
+      clearInterval(watch);
+    }
+  }, 250);
+
+  // When they generate again, unlock while generating
+  if (draftBtn) {
+    draftBtn.addEventListener("click", () => {
+      reviewText.readOnly = false;
+      reviewText.style.background = "";
+      reviewText.style.cursor = "";
+      lockedOnce = false;
+    });
+  }
+
+  // Review-page redirect delay (Safari/iPhone safe)
+  googleBtn.addEventListener("click", (e) => {
+    const url = googleBtn.getAttribute("href");
+    if (!url || url === "#") return;
+
+    e.preventDefault();
+
+    const original = googleBtn.textContent;
+    googleBtn.textContent = "Opening review…";
+    googleBtn.style.pointerEvents = "none";
+
+    const delayMs = 2200;
+
+    // Open a tab immediately so mobile browsers allow it
+    const newWin = window.open("about:blank", "_blank");
+
+    setTimeout(() => {
+      try {
+        if (newWin && !newWin.closed) {
+          newWin.location.href = url;
+        } else {
+          window.location.href = url;
+        }
+      } finally {
+        googleBtn.textContent = original;
+        googleBtn.style.pointerEvents = "";
+      }
+    }, delayMs);
+  });
+})();
+</script>
+
+</body>
+</html>
