@@ -239,4 +239,148 @@ Style:
 Starter hint (optional): You can start with something like "${starter}" (or ignore it).
 
 Optional notes from the customer (use only if they fit, do not invent details):
-${notes |
+${notes || "(none)"}
+
+Return ONLY the review text.
+    `.trim();
+  }
+
+  async function callOpenAI(prompt) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 9000);
+
+    try {
+      const resp = await fetch("https://api.openai.com/v1/chat/completions", {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${apiKey}`,
+          "Content-Type": "application/json",
+        },
+        signal: controller.signal,
+        body: JSON.stringify({
+          model: "gpt-4o-mini",
+          messages: [
+            {
+              role: "system",
+              content:
+                "You write short, natural, human-sounding Google reviews. Do not invent specific factual claims. Make outputs varied across runs.",
+            },
+            { role: "user", content: prompt },
+          ],
+          // Turn up creativity + reduce repetition
+          temperature: 1.35,
+          top_p: 0.95,
+          presence_penalty: 0.9,
+          frequency_penalty: 0.6,
+          max_tokens: 140,
+        }),
+      });
+
+      const text = await resp.text();
+      if (!resp.ok) throw new Error(text);
+
+      const data = JSON.parse(text);
+      return (data?.choices?.[0]?.message?.content || "").trim();
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  function postProcess(review) {
+    let out = String(review || "").trim();
+    out = clampToMaxSentences(out, 2); // never more than 2
+    out = clampToMaxSentences(out, sentenceTarget); // usually 1
+    out = ensurePunctuationEnd(out);
+    out = ensureEmployeeName(out, employee);
+
+    // Final clamp (just in case adding name pushed extra punctuation weirdly)
+    out = clampToMaxSentences(out, sentenceTarget);
+    out = ensurePunctuationEnd(out);
+
+    return out.trim();
+  }
+
+  function scoreCandidate(candidate, others) {
+    // Lower is better
+    let score = 0;
+
+    // Penalize clichés (not forbidden, just discouraged)
+    score += clichePenalty(candidate) * 2;
+
+    // Penalize length drift
+    score += lengthPenalty(candidate, sentenceTarget) * 2;
+
+    // Penalize being too similar to other candidates generated in this request
+    for (const o of others) {
+      const sim = similarityScore(candidate, o);
+      // If extremely similar, heavily penalize
+      if (sim > 0.45) score += 10;
+      else if (sim > 0.30) score += 5;
+      else score += sim; // small nudge
+    }
+
+    // Encourage variety by penalizing repeated openings like "Honestly" etc.
+    const n = normalize(candidate);
+    const first3 = n.split(" ").slice(0, 3).join(" ");
+    const commonOpeners = [
+      "honestly",
+      "really",
+      "so",
+      "this",
+      "i",
+      "we",
+      "not gonna",
+    ];
+    if (commonOpeners.includes(first3.split(" ")[0])) score += 0.7;
+
+    return score;
+  }
+
+  try {
+    // Generate a batch to choose from
+    const BATCH = 10;
+    const raw = [];
+    const processed = [];
+
+    for (let i = 0; i < BATCH; i++) {
+      const style = pick(styleCards);
+      const prompt = buildPrompt(style, sentenceTarget);
+
+      const r = await callOpenAI(prompt);
+      raw.push(r);
+
+      const p = postProcess(r);
+      processed.push(p);
+    }
+
+    // Pick the most distinct candidate
+    let best = processed[0] || "";
+    let bestScore = Number.POSITIVE_INFINITY;
+
+    for (let i = 0; i < processed.length; i++) {
+      const cand = processed[i];
+      if (!cand) continue;
+
+      // Must include employee name (only enforced rule)
+      if (!cand.toLowerCase().includes(String(employee).toLowerCase())) continue;
+
+      const others = processed.filter((_, idx) => idx !== i);
+      const s = scoreCandidate(cand, others);
+      if (s < bestScore) {
+        bestScore = s;
+        best = cand;
+      }
+    }
+
+    // Absolute safety fallback
+    if (!best) {
+      best = `Good work, ${employee}.`;
+    }
+
+    return res.status(200).json({ review: best });
+  } catch (e) {
+    console.error(e);
+    res.statusCode = 500;
+    return res.json({ error: "AI generation failed" });
+  }
+};
