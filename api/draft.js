@@ -6,6 +6,13 @@ module.exports = async function handler(req, res) {
 
   const { employee, businessType, serviceNotes } = req.body || {};
 
+  // ✅ NEW: no-name mode (only impacts types that use it)
+  const noName =
+    req.body?.noName === true ||
+    req.body?.noName === "true" ||
+    req.body?.noName === 1 ||
+    req.body?.noName === "1";
+
   if (!employee) {
     res.statusCode = 400;
     return res.json({ error: "Missing employee" });
@@ -25,20 +32,10 @@ module.exports = async function handler(req, res) {
   if (type === "detail" || type === "detailing") type = "auto_detailing";
 
   // Added types (do not impact Will/Swave unless their page sends these values)
-  if (
-    type === "nail" ||
-    type === "nails" ||
-    type === "nail_salon" ||
-    type === "nail-salon"
-  ) {
+  if (type === "nail" || type === "nails" || type === "nail_salon" || type === "nail-salon") {
     type = "nails";
   }
-  if (
-    type === "massage" ||
-    type === "massages" ||
-    type === "massage_therapy" ||
-    type === "massage-therapy"
-  ) {
+  if (type === "massage" || type === "massages" || type === "massage_therapy" || type === "massage-therapy") {
     type = "massage";
   }
 
@@ -100,6 +97,34 @@ module.exports = async function handler(req, res) {
     return String(text || "").split(/[.!?]+/).filter(Boolean).length;
   }
 
+  function wordCount(text) {
+    return String(text || "").trim().split(/\s+/).filter(Boolean).length;
+  }
+
+  // ✅ NEW: gentle shortening (keeps it readable)
+  function trimToMaxWords(text, maxWords) {
+    const t = String(text || "").trim();
+    if (!t) return t;
+
+    const words = t.split(/\s+/).filter(Boolean);
+    if (words.length <= maxWords) return t;
+
+    let out = words.slice(0, maxWords).join(" ");
+
+    // keep ending punctuation
+    if (!/[.!?]$/.test(out)) out += ".";
+    return out;
+  }
+
+  function maxWordsForType() {
+    if (type === "solar") return 16;
+    if (type === "nails") return 14;
+    if (type === "massage") return noName ? 15 : 14;
+
+    // detailing
+    return sentenceTarget === 2 ? 30 : 22;
+  }
+
   function startsWithName(text) {
     const t = String(text || "").trim().toLowerCase();
     const name = String(employee || "").trim().toLowerCase();
@@ -118,7 +143,6 @@ module.exports = async function handler(req, res) {
     const name = String(employee || "").trim().toLowerCase();
     if (!t || !name) return false;
 
-    // remove trailing punctuation for check
     const cleaned = t.replace(/[.!?]+$/g, "").trim();
     return cleaned.endsWith(" " + name) || cleaned.endsWith(name);
   }
@@ -184,7 +208,7 @@ module.exports = async function handler(req, res) {
 
     if (countSentences(t) > 1) return false;
 
-    const wc = t.split(/\s+/).filter(Boolean).length;
+    const wc = wordCount(t);
     if (wc < 8) return false;
 
     return true;
@@ -209,6 +233,7 @@ Hard rules:
 - Include the word "solar" exactly once.
 - Mention "${employee}" exactly once.
 - Keep it general like a template so the customer can edit.
+- Keep it short.
 - Do NOT use any of these phrases: ${solarBannedPhrases.join(", ")}.
 - Do NOT use semicolons, colons, or any dashes.
 
@@ -226,18 +251,13 @@ Return ONLY the review text.
   // NAILS (NEW, DOES NOT AFFECT WILL/SWAVE)
   // ------------------------
   const nailsBannedPhrases = [
-    // stop story vibe
     "after a long day",
     "after a long week",
     "after work",
     "roadtrip",
     "hauling",
-
-    // stop weird “Cambria” interpretations
     "thanks to",
     "thank you",
-
-    // stop “experience” spam
     "experience",
   ];
 
@@ -251,20 +271,14 @@ Return ONLY the review text.
 
     const low = t.toLowerCase();
 
-    // must mention employee
     if (!low.includes(String(employee).toLowerCase())) return false;
-
-    // must include nail/nails
     if (!(low.includes("nail") || low.includes("nails"))) return false;
 
-    // ban weird phrases
     if (containsAny(t, nailsBannedPhrases)) return false;
 
-    // exactly 1 sentence
     if (countSentences(t) > 1) return false;
 
-    // not too short
-    const wc = t.split(/\s+/).filter(Boolean).length;
+    const wc = wordCount(t);
     if (wc < 7) return false;
 
     return true;
@@ -290,6 +304,7 @@ Hard rules:
 - Mention "${employee}" exactly once.
 - Include "nail" or "nails" at least once.
 - Keep it general like a template so the customer can edit.
+- Keep it short.
 - Do NOT use the word "experience".
 - Do NOT include "thanks to" or "thank you".
 - Do NOT use semicolons, colons, or any dashes.
@@ -310,13 +325,11 @@ Return ONLY the review text.
   const massageBannedPhrases = [
     "session",
     "experience",
-
     "after a long day",
     "after a long week",
     "after work",
     "roadtrip",
     "hauling",
-
     "deep tissue",
     "sports massage",
     "hot stone",
@@ -335,15 +348,22 @@ Return ONLY the review text.
     if (startsWithStory(t)) return false;
 
     const low = t.toLowerCase();
+    const empLow = String(employee).toLowerCase();
 
-    if (!low.includes(String(employee).toLowerCase())) return false;
+    // ✅ NEW: no-name mode
+    if (noName) {
+      if (low.includes(empLow)) return false; // reject if it mentions her name
+    } else {
+      if (!low.includes(empLow)) return false; // require name normally
+    }
+
     if (!low.includes("massage")) return false;
 
     if (containsAny(t, massageBannedPhrases)) return false;
 
     if (countSentences(t) > 1) return false;
 
-    const wc = t.split(/\s+/).filter(Boolean).length;
+    const wc = wordCount(t);
     if (wc < 7) return false;
 
     return true;
@@ -362,16 +382,15 @@ Write a review draft.
 
 Hard rules:
 - Exactly ONE sentence.
-- Do NOT start with "${employee}".
-- Do NOT end with "${employee}".
 - Do NOT start with a story opener.
 - Do NOT mention the business name.
-- Mention "${employee}" exactly once.
 - Include the word "massage" at least once.
 - Keep it very simple and general like a template.
+- Keep it short.
 - Avoid the words "session" and "experience".
 - Do NOT add made up details or stories.
 - Do NOT use semicolons, colons, or any dashes.
+${noName ? "- Do NOT mention any employee name." : `- Mention "${employee}" exactly once.\n- Do NOT start with "${employee}".\n- Do NOT end with "${employee}".`}
 
 Optional notes (tone only):
 ${notes || "(none)"}
@@ -403,6 +422,7 @@ Rules:
 - Do NOT start with "${employee}".
 - Do NOT start with a story opener.
 - Do NOT mention the business name.
+- Keep it short.
 - Do NOT use semicolons, colons, or any dashes.
 
 Context:
@@ -470,12 +490,14 @@ Return ONLY the review text.
 
       review = await generate(
         prompt,
-        isSolar ? 1.25 : isNails ? 1.15 : isMassage ? 1.2 : 1.05,
-        isSolar ? 80 : isNails ? 80 : isMassage ? 80 : 95
+        isSolar ? 1.25 : isNails ? 1.15 : isMassage ? 1.15 : 1.05,
+        // slightly lower tokens = slightly shorter
+        isSolar ? 65 : isNails ? 65 : isMassage ? 65 : 85
       );
 
       review = sanitize(review);
       review = trimToSentences(review, sentenceTarget);
+      review = trimToMaxWords(review, maxWordsForType());
 
       if (isSolar) {
         if (solarIsAcceptable(review)) break;
@@ -490,56 +512,70 @@ Return ONLY the review text.
 
     review = sanitize(review);
     review = trimToSentences(review, sentenceTarget);
+    review = trimToMaxWords(review, maxWordsForType());
 
     // Solar fallback (KEEP your behavior)
     if (isSolar && !solarIsAcceptable(review)) {
       const solarFallback = [
-        `Really appreciate ${employee} being respectful and professional about solar.`,
-        `Solid experience overall and ${employee} was great to work with on solar.`,
-        `Glad I talked with ${employee} and got pointed in the right direction on solar.`,
-        `It was a good experience and ${employee} was helpful with solar.`,
-        `Thanks to ${employee} for being professional and helpful with solar.`,
-        `I had a positive experience and ${employee} was great during the solar visit.`,
-        `Everything felt professional and ${employee} did a great job with solar.`,
-        `Happy with the experience and ${employee} was friendly and helpful about solar.`,
+        `Really appreciate ${employee} being respectful about solar.`,
+        `Solid overall and ${employee} was great with solar.`,
+        `Glad I talked with ${employee} about solar.`,
+        `Good visit and ${employee} was helpful with solar.`,
+        `Professional help from ${employee} on solar.`,
+        `Positive visit and ${employee} was great on solar.`,
+        `Everything felt professional and ${employee} helped with solar.`,
+        `Happy overall and ${employee} was friendly about solar.`,
       ];
       review = sanitize(pick(solarFallback));
       review = trimToSentences(review, 1);
+      review = trimToMaxWords(review, maxWordsForType());
     }
 
     // Nails fallback (NEW)
     if (isNails && !nailsIsAcceptable(review)) {
       const nailsFallback = [
-        `My nails turned out so cute and ${employee} did a great job.`,
-        `I love how my nails look and ${employee} was so helpful.`,
-        `My nails came out really nice and I would recommend ${employee}.`,
-        `So happy with my nails and ${employee} did awesome.`,
-        `My nails look amazing and I am glad I booked with ${employee}.`,
+        `My nails look so cute and ${employee} did great.`,
+        `Love how my nails turned out and ${employee} was awesome.`,
+        `My nails came out really nice and ${employee} helped a lot.`,
+        `So happy with my nails and ${employee} did great.`,
+        `My nails look amazing and I booked with ${employee}.`,
       ];
       review = sanitize(pick(nailsFallback));
       review = trimToSentences(review, 1);
+      review = trimToMaxWords(review, maxWordsForType());
     }
 
-    // Massage fallback (NEW)
+    // Massage fallback (NEW) — supports no-name mode
     if (isMassage && !massageIsAcceptable(review)) {
-      const massageFallback = [
-        `I feel so much better after my massage and ${employee} was great.`,
-        `My massage was exactly what I needed and ${employee} was amazing.`,
-        `Really happy I booked a massage and ${employee} did a great job.`,
-        `My massage was really relaxing and ${employee} was great to work with.`,
+      const massageFallbackNamed = [
+        `My massage felt great and ${employee} was awesome.`,
+        `Really happy I booked a massage with ${employee}.`,
+        `My massage was relaxing and ${employee} did great.`,
+        `My massage helped a lot and ${employee} was great.`,
       ];
-      review = sanitize(pick(massageFallback));
+
+      const massageFallbackNoName = [
+        `My massage felt really relaxing and I would come back.`,
+        `Really happy I booked a massage and I feel great after.`,
+        `My massage was exactly what I needed today.`,
+        `Such a relaxing massage and I would recommend it.`,
+      ];
+
+      review = sanitize(pick(noName ? massageFallbackNoName : massageFallbackNamed));
       review = trimToSentences(review, 1);
+      review = trimToMaxWords(review, maxWordsForType());
     }
 
     // Detailing fallback (KEEP your behavior)
     if (!isSolar && !isNails && !isMassage && !detailingIsAcceptable(review)) {
       review =
         sentenceTarget === 2
-          ? `My car looks great after the detail. ${employee} did a solid job and it came out really clean.`
-          : `My car looks great after the detail, ${employee} did a solid job and it came out really clean.`;
+          ? `My car looks great after the detail. ${employee} did a solid job.`
+          : `My car looks great after the detail, ${employee} did a solid job.`;
+
       review = sanitize(review);
       review = trimToSentences(review, sentenceTarget);
+      review = trimToMaxWords(review, maxWordsForType());
     }
 
     return res.status(200).json({ review });

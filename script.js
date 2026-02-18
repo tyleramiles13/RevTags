@@ -7,6 +7,8 @@
   //   data-business, data-employee, data-google-url
   // New Swave pages use:
   //   data-employee, data-business-type, data-service-notes, data-google-review-url
+  // Optional:
+  //   data-no-name="true"
 
   const business = card.dataset.business || "the business";
   const employee = card.dataset.employee || "the employee";
@@ -14,6 +16,9 @@
   // New fields (optional)
   const businessType = (card.dataset.businessType || "").trim();   // data-business-type
   const serviceNotes = (card.dataset.serviceNotes || "").trim();   // data-service-notes
+
+  // ✅ NEW: no-name mode (optional)
+  const noName = (card.dataset.noName || "").toLowerCase() === "true"; // data-no-name="true"
 
   // Google review link (prefer new "write review" link, fallback to old link)
   const googleUrl =
@@ -56,7 +61,7 @@
     alert(msg);
   }
 
-  // --- Draft with REAL AI (matches your current /api/draft.js) ---
+  // --- Draft with REAL AI (matches /api/draft.js) ---
   async function draftWithAI() {
     setDraftLoading(true);
 
@@ -67,15 +72,14 @@
         body: JSON.stringify({
           employee,
           businessType,
-          serviceNotes
+          serviceNotes,
+          noName // ✅ NEW
         })
       });
 
-      // Read response safely
       const data = await res.json().catch(() => null);
 
       if (!res.ok) {
-        // If API returned JSON error
         const msg = data?.error || "AI request failed";
         throw new Error(msg);
       }
@@ -102,7 +106,6 @@
       return;
     }
 
-    // Best modern method (works on HTTPS + user tap)
     try {
       if (navigator.clipboard && window.isSecureContext) {
         await navigator.clipboard.writeText(text);
@@ -110,10 +113,9 @@
         return;
       }
     } catch (e) {
-      // fall through to fallback
+      // fall through
     }
 
-    // Fallback (older iOS / weird permissions)
     try {
       reviewText.focus();
       reviewText.select();
@@ -134,5 +136,3 @@
   if (draftBtn) draftBtn.addEventListener("click", draftWithAI);
   if (copyBtn) copyBtn.addEventListener("click", copyReview);
 })();
-
-
