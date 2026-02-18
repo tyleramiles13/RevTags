@@ -47,6 +47,7 @@ module.exports = async function handler(req, res) {
   if (!type) type = "auto_detailing";
 
   const notes = String(serviceNotes || "").trim();
+  const nn = String(noName || "").toLowerCase() === "true";
 
   function pick(arr) {
     return arr[Math.floor(Math.random() * arr.length)];
@@ -198,6 +199,61 @@ module.exports = async function handler(req, res) {
   }
 
   // ------------------------
+  // GLOBAL anti-cliche controls (this is the big “stop repeating” fix)
+  // ------------------------
+  const globalCliches = [
+    "highly recommend",
+    "would highly recommend",
+    "great service",
+    "amazing service",
+    "great experience",
+    "amazing experience",
+    "very professional",
+    "super professional",
+    "friendly and professional",
+    "went above and beyond",
+    "above and beyond",
+    "10/10",
+    "five stars",
+    "5 stars",
+    "exceptional",
+    "outstanding",
+    "top notch",
+    "best in town",
+    "look no further",
+    "i can't recommend",
+    "couldn't recommend",
+    "definitely recommend",
+    "fast and efficient",
+  ];
+
+  const globalStoryOpeners = [
+    "i just",
+    "i recently",
+    "we recently",
+    "today i",
+    "this morning",
+    "this afternoon",
+    "from start to finish",
+  ];
+
+  function startsWithGenericOpener(text) {
+    const t = String(text || "").trim().toLowerCase();
+    if (!t) return false;
+    return globalStoryOpeners.some((p) => t.startsWith(p));
+  }
+
+  function hasTooManyExclamations(text) {
+    const t = String(text || "");
+    const count = (t.match(/!/g) || []).length;
+    return count > 1;
+  }
+
+  function hasEmoji(text) {
+    return /[\u{1F300}-\u{1FAFF}]/u.test(String(text || ""));
+  }
+
+  // ------------------------
   // SOLAR (KEEP YOUR BEHAVIOR)
   // ------------------------
   const solarBannedPhrases = [
@@ -226,38 +282,54 @@ module.exports = async function handler(req, res) {
 
     if (startsWithName(t)) return false;
     if (startsWithStory(t)) return false;
+    if (startsWithGenericOpener(t)) return false;
 
     const low = t.toLowerCase();
 
     if (!low.includes("solar")) return false;
 
     // Must mention employee once (unless noName is enabled)
-    const nn = String(noName || "").toLowerCase() === "true";
     if (nn) {
       if (low.includes(String(employee).toLowerCase())) return false;
     } else {
       if (!low.includes(String(employee).toLowerCase())) return false;
       if (includeEmployeeOnce(t) !== 1) return false;
+      if (endsWithName(t)) return false;
+      if (hasInEmployee(t, employee)) return false;
     }
 
     if (containsAny(t, solarBannedPhrases)) return false;
+    if (containsAny(t, globalCliches)) return false;
 
     if (countSentences(t) > 1) return false;
 
     const wc = wordCount(t);
     if (wc < 8) return false;
-
-    // Tiny bit shorter for solar (does not affect Will)
     if (wc > 16) return false;
 
     if (!/[.!?]$/.test(t)) return false;
     if (endsWithBadToken(t)) return false;
 
+    if (hasEmoji(t)) return false;
+    if (hasTooManyExclamations(t)) return false;
+
     return true;
   }
 
   function buildPromptSolar() {
-    const nn = String(noName || "").toLowerCase() === "true";
+    const tone = pick([
+      "casual and simple",
+      "short and normal",
+      "friendly but not salesy",
+      "plain and real",
+    ]);
+
+    const structure = pick([
+      "Mention solar + one quick positive + name mention naturally.",
+      "Keep it vague, like a starter line someone would type.",
+      "Say what you liked without sounding like an ad.",
+      "Keep it calm and straightforward.",
+    ]);
 
     const patterns = [
       `Write ONE short sentence that sounds like a real Google review starter and is easy for a customer to edit.`,
@@ -269,6 +341,12 @@ module.exports = async function handler(req, res) {
     return `
 Write a Google review draft.
 
+Tone:
+- ${tone}
+
+Structure:
+- ${structure}
+
 Hard rules:
 - Exactly ONE sentence.
 - Do NOT start with a story opener.
@@ -276,6 +354,7 @@ Hard rules:
 - Include the word "solar" exactly once.
 - Keep it general like a template so the customer can edit.
 - Do NOT use any of these phrases: ${solarBannedPhrases.join(", ")}.
+- Avoid these overused review phrases: ${globalCliches.join(", ")}.
 - Do NOT use semicolons, colons, or any dashes.
 - Keep it short: 8 to 16 words.
 - Must end with a period.
@@ -302,21 +381,16 @@ Return ONLY the review text.
   }
 
   // ------------------------
-  // NAILS (NEW, DOES NOT AFFECT WILL/SWAVE)
+  // NAILS (unchanged, but add global anti-cliche)
   // ------------------------
   const nailsBannedPhrases = [
-    // stop story vibe
     "after a long day",
     "after a long week",
     "after work",
     "roadtrip",
     "hauling",
-
-    // stop spam words
     "experience",
     "vibe",
-
-    // stop thank-you endings
     "thanks to",
     "thank you",
   ];
@@ -325,65 +399,71 @@ Return ONLY the review text.
     const t = String(text || "").trim();
     if (!t) return false;
 
-    // must be 1 sentence
     if (countSentences(t) > 1) return false;
-
-    // must end cleanly
     if (!/[.!?]$/.test(t)) return false;
     if (endsWithBadToken(t)) return false;
 
-    // keep it short
     const wc = wordCount(t);
     if (wc < 6 || wc > 14) return false;
 
-    // ban weird phrases
     if (containsAny(t, nailsBannedPhrases)) return false;
+    if (containsAny(t, globalCliches)) return false;
 
-    // must mention nail/nails
     const low = t.toLowerCase();
     if (!(low.includes("nail") || low.includes("nails"))) return false;
 
     // user request: remove “and” for nails
     if (/\band\b/i.test(t)) return false;
 
-    // no story openers
     if (startsWithStory(t)) return false;
-
-    const nn = String(noName || "").toLowerCase() === "true";
-    const empLow = String(employee || "").trim().toLowerCase();
+    if (startsWithGenericOpener(t)) return false;
 
     if (nn) {
-      // no name pages must not include employee
+      const empLow = String(employee || "").trim().toLowerCase();
       if (empLow && low.includes(empLow)) return false;
     } else {
+      const empLow = String(employee || "").trim().toLowerCase();
       if (!empLow) return false;
       if (!low.includes(empLow)) return false;
       if (includeEmployeeOnce(t) !== 1) return false;
       if (startsWithName(t)) return false;
       if (endsWithName(t)) return false;
-      if (hasInEmployee(t, employee)) return false; // blocks "in Cambria"
+      if (hasInEmployee(t, employee)) return false;
     }
+
+    if (hasEmoji(t)) return false;
+    if (hasTooManyExclamations(t)) return false;
 
     return true;
   }
 
   function buildPromptNails() {
-    const nn = String(noName || "").toLowerCase() === "true";
+    const tone = pick([
+      "short and sweet",
+      "simple and real",
+      "happy but not dramatic",
+      "casual and normal",
+    ]);
 
-    const patterns = nn
-      ? [
-          `Write ONE short sentence that sounds like a real nails review starter someone could edit.`,
-          `Write ONE simple sentence that feels human and normal for a nails review.`,
-          `Write ONE short nails review template line with no extra details.`,
-        ]
-      : [
-          `Write ONE short sentence that sounds like a real nails review starter someone could edit.`,
-          `Write ONE simple sentence that feels human and normal.`,
-          `Write ONE short nails review template line that mentions the tech in a natural way.`,
-        ];
+    const nnPatterns = [
+      `Write ONE short sentence that sounds like a real nails review starter someone could edit.`,
+      `Write ONE simple sentence that feels human and normal for a nails review.`,
+      `Write ONE short nails review template line with no extra details.`,
+      `Write ONE short line that focuses on the nails result (no extra story).`,
+    ];
+
+    const namedPatterns = [
+      `Write ONE short sentence that sounds like a real nails review starter someone could edit.`,
+      `Write ONE simple sentence that feels human and normal.`,
+      `Write ONE short nails review template line that mentions the tech in a natural way.`,
+      `Write ONE short line that mentions "${employee}" naturally without starting with the name.`,
+    ];
 
     return `
 Write a Google review draft.
+
+Tone:
+- ${tone}
 
 Hard rules:
 - Exactly ONE sentence.
@@ -391,6 +471,7 @@ Hard rules:
 - Do NOT mention the business name.
 - Do NOT use the word "experience" or "vibe".
 - Do NOT use the word "and".
+- Avoid these overused review phrases: ${globalCliches.join(", ")}.
 - Do NOT use semicolons, colons, or any dashes.
 - Keep it short: 6 to 14 words.
 - Must end with a period.
@@ -414,26 +495,24 @@ Optional notes (tone only):
 ${notes || "(none)"}
 
 Instruction:
-${pick(patterns)}
+${nn ? pick(nnPatterns) : pick(namedPatterns)}
 
 Return ONLY the review text.
     `.trim();
   }
 
   // ------------------------
-  // MASSAGE (NEW, DOES NOT AFFECT WILL/SWAVE)
+  // MASSAGE (unchanged, but add global anti-cliche)
   // ------------------------
   const massageBannedPhrases = [
     "session",
     "experience",
     "vibe",
-
     "after a long day",
     "after a long week",
     "after work",
     "roadtrip",
     "hauling",
-
     "deep tissue",
     "sports massage",
     "hot stone",
@@ -455,15 +534,14 @@ Return ONLY the review text.
     if (wc < 6 || wc > 14) return false;
 
     if (startsWithStory(t)) return false;
+    if (startsWithGenericOpener(t)) return false;
 
     const low = t.toLowerCase();
-
-    // Must include "massage" (simple)
     if (!low.includes("massage")) return false;
 
     if (containsAny(t, massageBannedPhrases)) return false;
+    if (containsAny(t, globalCliches)) return false;
 
-    const nn = String(noName || "").toLowerCase() === "true";
     const empLow = String(employee || "").trim().toLowerCase();
 
     if (nn) {
@@ -477,26 +555,39 @@ Return ONLY the review text.
       if (hasInEmployee(t, employee)) return false;
     }
 
+    if (hasEmoji(t)) return false;
+    if (hasTooManyExclamations(t)) return false;
+
     return true;
   }
 
   function buildPromptMassage() {
-    const nn = String(noName || "").toLowerCase() === "true";
+    const tone = pick([
+      "simple and calm",
+      "short and normal",
+      "relieved but not dramatic",
+      "casual and real",
+    ]);
 
     const patterns = nn
       ? [
           `Write ONE very simple sentence someone would type as a review starter.`,
           `Write ONE short and normal sentence that is easy to edit.`,
           `Write ONE simple positive line with no extra details.`,
+          `Write ONE simple line that mentions massage without sounding like an ad.`,
         ]
       : [
           `Write ONE very simple sentence someone would type as a review starter.`,
           `Write ONE short and normal sentence that mentions the therapist naturally.`,
           `Write ONE simple positive line that is easy to edit.`,
+          `Write ONE short line that mentions "${employee}" naturally without starting with the name.`,
         ];
 
     return `
 Write a review draft.
+
+Tone:
+- ${tone}
 
 Hard rules:
 - Exactly ONE sentence.
@@ -505,6 +596,7 @@ Hard rules:
 - Include the word "massage" at least once.
 - Keep it very simple and general like a template.
 - Avoid the words "session", "experience", and "vibe".
+- Avoid these overused review phrases: ${globalCliches.join(", ")}.
 - Do NOT add made up details or stories.
 - Do NOT use semicolons, colons, or any dashes.
 - Keep it short: 6 to 14 words.
@@ -532,30 +624,121 @@ Return ONLY the review text.
   }
 
   // ------------------------
-  // DETAILING (KEEP YOUR BEHAVIOR)
+  // DETAILING (this is where repetition usually happens)
   // ------------------------
   function detailingIsAcceptable(text) {
     const t = String(text || "").trim();
     if (!t) return false;
+
+    // keep your existing guardrails
     if (startsWithName(t)) return false;
     if (startsWithStory(t)) return false;
-    return true; // keep it light so Will doesn’t fall back a lot
+
+    // new: block generic openers + clichés (major repetition reducers)
+    if (startsWithGenericOpener(t)) return false;
+    if (containsAny(t, globalCliches)) return false;
+
+    // new: keep it clean
+    if (hasEmoji(t)) return false;
+    if (hasTooManyExclamations(t)) return false;
+
+    // keep it from getting weird-long or fragment-short
+    const wc = wordCount(t);
+    if (sentenceTarget === 1) {
+      if (wc < 10 || wc > 26) return false;
+    } else {
+      if (wc < 16 || wc > 40) return false;
+    }
+
+    // must end with punctuation and not end on junk
+    if (!/[.!?]$/.test(t)) return false;
+    if (endsWithBadToken(t)) return false;
+
+    // name rules
+    const low = t.toLowerCase();
+    const empLow = String(employee || "").trim().toLowerCase();
+
+    if (nn) {
+      if (empLow && low.includes(empLow)) return false;
+    } else {
+      if (!empLow) return false;
+      if (!low.includes(empLow)) return false;
+      if (includeEmployeeOnce(t) !== 1) return false;
+      if (endsWithName(t)) return false;
+      if (hasInEmployee(t, employee)) return false;
+    }
+
+    // sentence count check (allow <= target, then trim handles it)
+    if (countSentences(t) > sentenceTarget) return false;
+
+    return true;
   }
 
   function buildPromptDetailing() {
+    const tone = pick([
+      "casual and normal (like a real person typed it)",
+      "short and calm",
+      "happy but not overhyped",
+      "simple and straightforward",
+      "friendly and low-key",
+    ]);
+
+    const structure = pick([
+      "Result first, then mention the employee naturally.",
+      "Mention the employee naturally, then the clean result.",
+      "One simple compliment + one simple result.",
+      "Keep it plain and believable, like a quick review starter.",
+      "Avoid sounding like marketing; write like a customer.",
+    ]);
+
+    const allowedStarters = pick([
+      "So happy with how it turned out",
+      "My car looks so clean",
+      "Really happy with the detail",
+      "Super happy with the results",
+      "My car came out really clean",
+      "The car looks great now",
+      "Everything looks really clean",
+      "Great detail and it looks awesome",
+      "Love how clean it looks",
+      "It came out really nice",
+    ]);
+
     return `
 Write a short Google review draft.
+
+Tone:
+- ${tone}
+
+Structure:
+- ${structure}
 
 Rules:
 - ${sentenceTarget} sentence${sentenceTarget === 2 ? "s" : ""} only.
 - Do NOT start with "${employee}".
 - Do NOT start with a story opener.
 - Do NOT mention the business name.
+- Avoid these overused review phrases: ${globalCliches.join(", ")}.
 - Do NOT use semicolons, colons, or any dashes.
+- Do NOT use emojis.
+- Use at most one exclamation point (prefer none).
+- Start with something like: "${allowedStarters}" (you can rephrase it, but keep that vibe).
+- Keep it believable and not salesy.
 
 Context:
 - Employee name: "${employee}"
 - This is an auto detailing service.
+
+${nn ? `
+Name rules:
+- Do NOT mention "${employee}" at all.
+` : `
+Name rules:
+- Mention "${employee}" exactly once.
+- Mention them naturally (not as the first word).
+- Do NOT end with "${employee}".
+- NEVER write "in ${employee}".
+`}
 
 Optional notes (use lightly):
 ${notes || "(none)"}
@@ -582,11 +765,14 @@ Return ONLY the review text.
             {
               role: "system",
               content:
-                "Write short, human sounding Google reviews. Keep them casual and believable. Avoid repeating the same phrasing.",
+                "Write short, human-sounding review drafts. Make them varied. Avoid clichés and repeated phrasing. Do not invent specific claims.",
             },
             { role: "user", content: prompt },
           ],
           temperature: temp,
+          top_p: 0.9,
+          presence_penalty: 0.7,
+          frequency_penalty: 0.4,
           max_tokens: maxTokens,
         }),
       });
@@ -618,9 +804,9 @@ Return ONLY the review text.
 
       review = await generate(
         prompt,
-        isSolar ? 1.25 : isNails ? 1.15 : isMassage ? 1.2 : 1.05,
+        isSolar ? 1.2 : isNails ? 1.1 : isMassage ? 1.15 : 1.15,
         // shorter outputs for nails/massage/solar, leave detailing alone
-        isSolar ? 60 : isNails ? 40 : isMassage ? 40 : 95
+        isSolar ? 70 : isNails ? 55 : isMassage ? 55 : 120
       );
 
       review = sanitize(review);
@@ -642,19 +828,18 @@ Return ONLY the review text.
 
     // Solar fallback (KEEP your behavior, but slightly shorter and no weird endings)
     if (isSolar && !solarIsAcceptable(review)) {
-      const nn = String(noName || "").toLowerCase() === "true";
       const solarFallback = nn
         ? [
-            `Really appreciate how professional they were about solar.`,
-            `Solid solar visit and everything felt respectful.`,
-            `Glad I got some helpful solar info today.`,
-            `Good solar visit and it felt professional.`,
+            `Appreciated how professional they were about solar.`,
+            `Good solar visit and it felt respectful.`,
+            `Helpful solar info and no pressure.`,
+            `Solid solar visit and it felt professional.`,
           ]
         : [
-            `Really appreciate ${employee} being respectful about solar.`,
-            `Solid solar visit and ${employee} was great.`,
-            `Glad I talked with ${employee} about solar.`,
+            `Appreciated ${employee} being respectful about solar.`,
             `Good solar visit and ${employee} was helpful.`,
+            `Helpful solar info from ${employee} with no pressure.`,
+            `Solid solar visit and ${employee} was professional.`,
           ];
 
       review = sanitize(pick(solarFallback));
@@ -664,7 +849,6 @@ Return ONLY the review text.
 
     // Nails fallback (NEW, bulletproof)
     if (isNails && !nailsIsAcceptable(review)) {
-      const nn = String(noName || "").toLowerCase() === "true";
       const nailsFallback = nn
         ? [
             `My nails turned out so cute.`,
@@ -686,7 +870,6 @@ Return ONLY the review text.
 
     // Massage fallback (NEW, simple)
     if (isMassage && !massageIsAcceptable(review)) {
-      const nn = String(noName || "").toLowerCase() === "true";
       const massageFallback = nn
         ? [
             `That massage was exactly what I needed.`,
@@ -706,13 +889,31 @@ Return ONLY the review text.
       review = trimToSentences(review, 1);
     }
 
-    // Detailing fallback (KEEP your behavior)
+    // Detailing fallback (now more varied)
     if (!isSolar && !isNails && !isMassage && !detailingIsAcceptable(review)) {
-      review =
-        sentenceTarget === 2
-          ? `My car looks great after the detail. ${employee} did a solid job and it came out really clean.`
-          : `My car looks great after the detail, ${employee} did a solid job and it came out really clean.`;
-      review = sanitize(review);
+      const detailingFallback = nn
+        ? [
+            `My car looks really clean after the detail.`,
+            `Really happy with how clean everything turned out.`,
+            `The detail made a big difference and it looks great.`,
+            `Super happy with the results from the detail.`,
+          ]
+        : sentenceTarget === 2
+        ? [
+            `My car looks really clean after the detail. ${employee} did a solid job.`,
+            `Really happy with how it turned out. ${employee} made the car look great.`,
+            `The car came out really clean. ${employee} did a great job.`,
+            `Super happy with the detail. ${employee} was easy to work with.`,
+          ]
+        : [
+            `My car looks really clean after the detail, ${employee} did a solid job.`,
+            `Really happy with how it turned out, ${employee} did a great job.`,
+            `The car came out really clean, ${employee} was great.`,
+            `Super happy with the detail, ${employee} did a good job.`,
+          ];
+
+      review = sanitize(pick(detailingFallback));
+      if (!/[.!?]$/.test(review)) review += ".";
       review = trimToSentences(review, sentenceTarget);
     }
 
