@@ -6,7 +6,7 @@ module.exports = async function handler(req, res) {
 
   const { employee, businessType, serviceNotes } = req.body || {};
 
-  // ✅ NEW: no-name mode (only impacts types that use it)
+  // ✅ no-name mode (only impacts types that use it)
   const noName =
     req.body?.noName === true ||
     req.body?.noName === "true" ||
@@ -31,7 +31,7 @@ module.exports = async function handler(req, res) {
   if (type === "auto-detailing") type = "auto_detailing";
   if (type === "detail" || type === "detailing") type = "auto_detailing";
 
-  // Added types (do not impact Will/Swave unless their page sends these values)
+  // Added types
   if (
     type === "nail" ||
     type === "nails" ||
@@ -49,7 +49,7 @@ module.exports = async function handler(req, res) {
     type = "massage";
   }
 
-  // Default stays detailing (important for Will pages that don’t send a type)
+  // Default stays detailing
   if (!type) type = "auto_detailing";
 
   const notes = String(serviceNotes || "").trim();
@@ -58,11 +58,7 @@ module.exports = async function handler(req, res) {
     return arr[Math.floor(Math.random() * arr.length)];
   }
 
-  // Sentence targets (keep existing behavior)
-  // Solar: ALWAYS 1 sentence
-  // Nails: ALWAYS 1 sentence
-  // Massage: ALWAYS 1 sentence
-  // Detailing: mostly 1, sometimes 2
+  // Sentence targets
   const sentenceTarget =
     type === "solar"
       ? 1
@@ -111,7 +107,14 @@ module.exports = async function handler(req, res) {
     return String(text || "").trim().split(/\s+/).filter(Boolean).length;
   }
 
-  // ✅ NEW: gentle shortening (keeps it readable)
+  function ensureEndsWithPunctuation(text) {
+    let t = String(text || "").trim();
+    if (!t) return t;
+    if (!/[.!?]$/.test(t)) t += ".";
+    return t;
+  }
+
+  // ✅ gentle shortening
   function trimToMaxWords(text, maxWords) {
     const t = String(text || "").trim();
     if (!t) return t;
@@ -120,15 +123,13 @@ module.exports = async function handler(req, res) {
     if (words.length <= maxWords) return t;
 
     let out = words.slice(0, maxWords).join(" ");
-
-    // keep ending punctuation
-    if (!/[.!?]$/.test(out)) out += ".";
+    out = ensureEndsWithPunctuation(out);
     return out;
   }
 
   function maxWordsForType() {
     if (type === "solar") return 16;
-    if (type === "nails") return 14;
+    if (type === "nails") return 16; // ✅ slightly higher to avoid fragments after trimming
     if (type === "massage") return noName ? 15 : 14;
 
     // detailing
@@ -179,8 +180,7 @@ module.exports = async function handler(req, res) {
     return arr.some((p) => low.includes(String(p).toLowerCase()));
   }
 
-  // ✅ NEW: stop employee name being used like a location/channel
-  // Examples blocked: "through Cambria", "via Cambria", "in Cambria", "at Cambria", "from Cambria"
+  // ✅ Stop employee name being used like a location/channel
   function hasBadNameContext(text) {
     const t = String(text || "");
     const name = String(employee || "").trim();
@@ -194,26 +194,78 @@ module.exports = async function handler(req, res) {
     return re.test(t);
   }
 
-  // ✅ NEW: auto-fix the worst offenders if they appear
   function fixBadNameContext(text) {
     let t = String(text || "");
     const name = String(employee || "").trim();
     if (!t || !name) return t;
 
     const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-
-    // Replace "through NAME"/"via NAME"/"thru NAME" with "with NAME"
-    t = t.replace(new RegExp(`\\b(through|thru|via)\\s+${escaped}\\b`, "gi"), `with ${name}`);
-
-    // Also replace "in NAME" / "at NAME" / "from NAME" if they show up
-    // (still sounds more like a person than a place)
-    t = t.replace(new RegExp(`\\b(in|at|from|out of)\\s+${escaped}\\b`, "gi"), `with ${name}`);
-
+    t = t.replace(
+      new RegExp(`\\b(through|thru|via)\\s+${escaped}\\b`, "gi"),
+      `with ${name}`
+    );
+    t = t.replace(
+      new RegExp(`\\b(in|at|from|out of)\\s+${escaped}\\b`, "gi"),
+      `with ${name}`
+    );
     return t;
   }
 
+  // ✅ Reject fragments like: "she really", "who really knows", "I..."
+  function endsLikeFragment(text) {
+    const t = String(text || "").trim();
+    if (!t) return true;
+
+    // If it ends with a quote/comma or incomplete punctuation
+    if (/[,"']$/.test(t)) return true;
+
+    const cleaned = t.replace(/[.!?]+$/g, "").trim().toLowerCase();
+
+    const badEndings = [
+      "she",
+      "he",
+      "they",
+      "really",
+      "so",
+      "and",
+      "but",
+      "because",
+      "who",
+      "who really",
+      "that",
+      "knows",
+      "how",
+      "i",
+      "we",
+      "my",
+      "the",
+      "a",
+      "an",
+      "to",
+      "with",
+      "for",
+      "of",
+      "in",
+      "at",
+      "from",
+    ];
+
+    if (badEndings.includes(cleaned)) return true;
+
+    // Ends with “who really knows” / “she really” / “I…”
+    if (/(who|she|he)\s+really$/.test(cleaned)) return true;
+    if (/\bwho\s+really\s+knows$/.test(cleaned)) return true;
+    if (/\bi\s*$/.test(cleaned)) return true;
+
+    // If last token is tiny / weird
+    const last = cleaned.split(/\s+/).filter(Boolean).slice(-1)[0] || "";
+    if (last.length <= 1) return true;
+
+    return false;
+  }
+
   // ------------------------
-  // SOLAR (KEEP YOUR BEHAVIOR)
+  // SOLAR (same as you had)
   // ------------------------
   const solarBannedPhrases = [
     "easy to understand",
@@ -241,9 +293,8 @@ module.exports = async function handler(req, res) {
 
     if (startsWithName(t)) return false;
     if (startsWithStory(t)) return false;
-
-    // ✅ NEW
     if (hasBadNameContext(t)) return false;
+    if (endsLikeFragment(t)) return false;
 
     const low = t.toLowerCase();
 
@@ -278,11 +329,12 @@ Hard rules:
 - Do NOT mention the business name.
 - Include the word "solar" exactly once.
 - Mention "${employee}" exactly once.
-- IMPORTANT: Treat "${employee}" as a PERSON. Do NOT say "through ${employee}" or "in ${employee}" or "at ${employee}".
+- Treat "${employee}" as a PERSON (not a place): do NOT say "through ${employee}" or "in ${employee}" or "at ${employee}".
 - Keep it general like a template so the customer can edit.
 - Keep it short.
 - Do NOT use any of these phrases: ${solarBannedPhrases.join(", ")}.
 - Do NOT use semicolons, colons, or any dashes.
+- Make it a complete sentence that ends cleanly.
 
 Optional notes (tone only, no specific claims):
 ${notes || "(none)"}
@@ -295,7 +347,7 @@ Return ONLY the review text.
   }
 
   // ------------------------
-  // NAILS (NEW, DOES NOT AFFECT WILL/SWAVE)
+  // NAILS (UPGRADED for human + varied + no fragments)
   // ------------------------
   const nailsBannedPhrases = [
     "after a long day",
@@ -306,6 +358,33 @@ Return ONLY the review text.
     "thanks to",
     "thank you",
     "experience",
+    // ✅ stop the repetitive theme you showed
+    "great time chatting",
+    "had a great time chatting",
+    "chatting with",
+  ];
+
+  const nailsStyleCards = [
+    {
+      name: "Result-focused",
+      hint: "Focus on how the nails turned out (simple + real).",
+      starters: ["Love how my nails turned out", "My nails look so good", "So happy with my nails", "These nails are perfect"],
+    },
+    {
+      name: "Skill-focused",
+      hint: "Mention the tech’s skill without sounding like an ad.",
+      starters: ["Cambria knows what she’s doing", "Cambria has such a good eye", "Cambria did an awesome job", "Cambria nailed it"],
+    },
+    {
+      name: "Low-key",
+      hint: "Calm and short, like a real person typing fast.",
+      starters: ["Super happy with this set", "Really like this set", "This set came out great", "So glad I booked"],
+    },
+    {
+      name: "Clean + simple",
+      hint: "Minimal words, no fluff, not dramatic.",
+      starters: ["Great nails", "Love this set", "So cute", "Turned out great"],
+    },
   ];
 
   function nailsIsAcceptable(text) {
@@ -315,50 +394,59 @@ Return ONLY the review text.
     if (startsWithName(t)) return false;
     if (endsWithName(t)) return false;
     if (startsWithStory(t)) return false;
-
-    // ✅ NEW
     if (hasBadNameContext(t)) return false;
 
-    const low = t.toLowerCase();
+    if (countSentences(t) > 1) return false;
 
+    const low = t.toLowerCase();
     if (!low.includes(String(employee).toLowerCase())) return false;
     if (!(low.includes("nail") || low.includes("nails"))) return false;
 
     if (containsAny(t, nailsBannedPhrases)) return false;
 
-    if (countSentences(t) > 1) return false;
-
     const wc = wordCount(t);
+    // ✅ keep it short but not tiny
     if (wc < 7) return false;
+    if (wc > 18) return false;
+
+    // ✅ must end cleanly
+    if (!/[.!?]$/.test(t)) return false;
+    if (endsLikeFragment(t)) return false;
 
     return true;
   }
 
   function buildPromptNails() {
+    const style = pick(nailsStyleCards);
+    const starter = pick(style.starters);
+
     const patterns = [
-      `Write ONE short sentence that sounds like a real review starter and is easy to edit.`,
-      `Write ONE simple sentence that feels human and casual, not salesy.`,
-      `Write ONE short sentence that someone would actually type and could tweak.`,
-      `Write ONE short and normal review template line.`,
+      `Write ONE sentence that sounds like a real person typing a quick Google review.`,
+      `Write ONE sentence that feels human and not like a template.`,
+      `Write ONE short sentence someone would actually post.`,
     ];
 
     return `
-Write a Google review draft.
+Write a Google review draft for a nails appointment.
 
 Hard rules:
-- Exactly ONE sentence.
+- Exactly ONE sentence, and it must be a COMPLETE sentence (no trailing fragments like "she really" or "who really knows").
 - Do NOT start with "${employee}".
 - Do NOT end with "${employee}".
 - Do NOT start with a story opener.
 - Do NOT mention the business name.
 - Mention "${employee}" exactly once.
-- IMPORTANT: Treat "${employee}" as a PERSON. Do NOT say "through ${employee}" or "in ${employee}" or "at ${employee}".
+- Treat "${employee}" as a PERSON (not a place): do NOT say "through ${employee}" or "in ${employee}" or "at ${employee}".
 - Include "nail" or "nails" at least once.
-- Keep it general like a template so the customer can edit.
-- Keep it short.
+- Keep it short: 7 to 18 words.
 - Do NOT use the word "experience".
 - Do NOT include "thanks to" or "thank you".
+- Avoid talking about "chatting" or "great time chatting".
 - Do NOT use semicolons, colons, or any dashes.
+
+Style goal:
+- ${style.hint}
+- Optional starter vibe: "${starter}" (you can rephrase it, just keep the vibe).
 
 Optional notes (tone only):
 ${notes || "(none)"}
@@ -371,7 +459,7 @@ Return ONLY the review text.
   }
 
   // ------------------------
-  // MASSAGE (NEW, DOES NOT AFFECT WILL/SWAVE)
+  // MASSAGE (same as you had + fragment check)
   // ------------------------
   const massageBannedPhrases = [
     "session",
@@ -397,18 +485,16 @@ Return ONLY the review text.
     if (startsWithName(t)) return false;
     if (endsWithName(t)) return false;
     if (startsWithStory(t)) return false;
-
-    // ✅ NEW
     if (hasBadNameContext(t)) return false;
+    if (endsLikeFragment(t)) return false;
 
     const low = t.toLowerCase();
     const empLow = String(employee).toLowerCase();
 
-    // ✅ NEW: no-name mode
     if (noName) {
-      if (low.includes(empLow)) return false; // reject if it mentions her name
+      if (low.includes(empLow)) return false;
     } else {
-      if (!low.includes(empLow)) return false; // require name normally
+      if (!low.includes(empLow)) return false;
     }
 
     if (!low.includes("massage")) return false;
@@ -420,6 +506,8 @@ Return ONLY the review text.
     const wc = wordCount(t);
     if (wc < 7) return false;
 
+    if (!/[.!?]$/.test(t)) return false;
+
     return true;
   }
 
@@ -427,7 +515,7 @@ Return ONLY the review text.
     const patterns = [
       `Write ONE very simple sentence that sounds like a real review starter and is easy to edit.`,
       `Write ONE short, normal sentence someone would actually type after a massage.`,
-      `Write ONE short and casual review template line that feels human.`,
+      `Write ONE short and casual review line that feels human.`,
       `Write ONE simple positive sentence that is not overly specific.`,
     ];
 
@@ -436,6 +524,7 @@ Write a review draft.
 
 Hard rules:
 - Exactly ONE sentence.
+- Must be a complete sentence (no trailing fragments).
 - Do NOT start with a story opener.
 - Do NOT mention the business name.
 - Include the word "massage" at least once.
@@ -444,7 +533,7 @@ Hard rules:
 - Avoid the words "session" and "experience".
 - Do NOT add made up details or stories.
 - Do NOT use semicolons, colons, or any dashes.
-${noName ? "- Do NOT mention any employee name." : `- Mention "${employee}" exactly once.\n- Do NOT start with "${employee}".\n- Do NOT end with "${employee}".\n- IMPORTANT: Treat "${employee}" as a PERSON. Do NOT say "through ${employee}" or "in ${employee}" or "at ${employee}".`}
+${noName ? "- Do NOT mention any employee name." : `- Mention "${employee}" exactly once.\n- Do NOT start with "${employee}".\n- Do NOT end with "${employee}".\n- Treat "${employee}" as a PERSON: do NOT say "through ${employee}" or "in ${employee}" or "at ${employee}".`}
 
 Optional notes (tone only):
 ${notes || "(none)"}
@@ -457,17 +546,15 @@ Return ONLY the review text.
   }
 
   // ------------------------
-  // DETAILING (KEEP YOUR BEHAVIOR)
+  // DETAILING (same as you had + fragment check)
   // ------------------------
   function detailingIsAcceptable(text) {
     const t = String(text || "").trim();
     if (!t) return false;
     if (startsWithName(t)) return false;
     if (startsWithStory(t)) return false;
-
-    // ✅ NEW (doesn’t hurt detailing)
     if (hasBadNameContext(t)) return false;
-
+    if (endsLikeFragment(t)) return false;
     return true;
   }
 
@@ -480,9 +567,10 @@ Rules:
 - Do NOT start with "${employee}".
 - Do NOT start with a story opener.
 - Do NOT mention the business name.
-- IMPORTANT: Treat "${employee}" as a PERSON. Do NOT say "through ${employee}" or "in ${employee}" or "at ${employee}".
+- Treat "${employee}" as a PERSON: do NOT say "through ${employee}" or "in ${employee}" or "at ${employee}".
 - Keep it short.
 - Do NOT use semicolons, colons, or any dashes.
+- Make it a complete sentence that ends cleanly.
 
 Context:
 - Employee name: "${employee}"
@@ -513,11 +601,14 @@ Return ONLY the review text.
             {
               role: "system",
               content:
-                "Write short, human sounding Google reviews. Keep them casual and believable. Avoid repeating the same phrasing.",
+                "Write short, human-sounding Google reviews. Make them varied. Do not leave trailing fragments. Do not invent specific factual claims.",
             },
             { role: "user", content: prompt },
           ],
           temperature: temp,
+          top_p: 0.95,
+          presence_penalty: 0.8,
+          frequency_penalty: 0.5,
           max_tokens: maxTokens,
         }),
       });
@@ -532,37 +623,84 @@ Return ONLY the review text.
     }
   }
 
+  // ✅ For nails: generate several options and pick the best one
+  function scoreNailsCandidate(t) {
+    const low = String(t || "").toLowerCase();
+
+    // lower score = better
+    let score = 0;
+
+    // discourage the patterns you showed
+    const badThemes = ["had a great time", "great time", "chatting"];
+    for (const p of badThemes) {
+      if (low.includes(p)) score += 5;
+    }
+
+    // discourage super generic "impressed" / "skills" combos
+    const mildCliches = ["really impressed", "skills", "absolutely", "nailed the look"];
+    for (const p of mildCliches) {
+      if (low.includes(p)) score += 2;
+    }
+
+    // prefer shorter
+    const wc = wordCount(t);
+    score += Math.max(0, wc - 14) * 0.5;
+
+    return score;
+  }
+
   try {
     let review = "";
     const isSolar = type === "solar";
     const isNails = type === "nails";
     const isMassage = type === "massage";
 
+    // ✅ NAILS: batch generate and pick best
+    if (isNails) {
+      const candidates = [];
+      for (let i = 0; i < 9; i++) {
+        const prompt = buildPromptNails();
+        let r = await generate(prompt, 1.25, 70);
+
+        r = sanitize(r);
+        r = fixBadNameContext(r);
+        r = trimToSentences(r, 1);
+        r = ensureEndsWithPunctuation(r);
+        r = trimToMaxWords(r, maxWordsForType());
+
+        if (nailsIsAcceptable(r)) candidates.push(r);
+      }
+
+      if (candidates.length > 0) {
+        candidates.sort((a, b) => scoreNailsCandidate(a) - scoreNailsCandidate(b));
+        review = candidates[0];
+        return res.status(200).json({ review });
+      }
+      // fall through to normal retry/fallback if batch failed
+    }
+
+    // Normal path (solar/massage/detailing)
     for (let attempt = 0; attempt < 4; attempt++) {
       const prompt = isSolar
         ? buildPromptSolar()
-        : isNails
-        ? buildPromptNails()
         : isMassage
         ? buildPromptMassage()
         : buildPromptDetailing();
 
       review = await generate(
         prompt,
-        isSolar ? 1.25 : isNails ? 1.15 : isMassage ? 1.15 : 1.05,
-        // slightly lower tokens = slightly shorter
-        isSolar ? 65 : isNails ? 65 : isMassage ? 65 : 85
+        isSolar ? 1.25 : isMassage ? 1.15 : 1.05,
+        isSolar ? 65 : isMassage ? 65 : 85
       );
 
       review = sanitize(review);
-      review = fixBadNameContext(review); // ✅ NEW
+      review = fixBadNameContext(review);
       review = trimToSentences(review, sentenceTarget);
+      review = ensureEndsWithPunctuation(review);
       review = trimToMaxWords(review, maxWordsForType());
 
       if (isSolar) {
         if (solarIsAcceptable(review)) break;
-      } else if (isNails) {
-        if (nailsIsAcceptable(review)) break;
       } else if (isMassage) {
         if (massageIsAcceptable(review)) break;
       } else {
@@ -571,66 +709,64 @@ Return ONLY the review text.
     }
 
     review = sanitize(review);
-    review = fixBadNameContext(review); // ✅ NEW
+    review = fixBadNameContext(review);
     review = trimToSentences(review, sentenceTarget);
+    review = ensureEndsWithPunctuation(review);
     review = trimToMaxWords(review, maxWordsForType());
 
-    // Solar fallback (KEEP your behavior)
+    // Solar fallback
     if (isSolar && !solarIsAcceptable(review)) {
       const solarFallback = [
         `Really appreciate ${employee} being respectful about solar.`,
         `Solid overall and ${employee} was great with solar.`,
         `Glad I talked with ${employee} about solar.`,
         `Good visit and ${employee} was helpful with solar.`,
-        `Professional help from ${employee} on solar.`,
-        `Positive visit and ${employee} was great on solar.`,
-        `Everything felt professional and ${employee} helped with solar.`,
-        `Happy overall and ${employee} was friendly about solar.`,
       ];
       review = sanitize(pick(solarFallback));
-      review = fixBadNameContext(review); // ✅ NEW
+      review = fixBadNameContext(review);
       review = trimToSentences(review, 1);
+      review = ensureEndsWithPunctuation(review);
       review = trimToMaxWords(review, maxWordsForType());
     }
 
-    // Nails fallback (NEW)
+    // Nails fallback (stronger, more human)
     if (isNails && !nailsIsAcceptable(review)) {
       const nailsFallback = [
-        `My nails look so cute and ${employee} did great.`,
-        `Love how my nails turned out and ${employee} was awesome.`,
-        `My nails came out really nice and ${employee} helped a lot.`,
-        `So happy with my nails and ${employee} did great.`,
-        `My nails look amazing and I booked with ${employee}.`,
+        `Love my nails, ${employee} did such a good job.`,
+        `My nails turned out perfect, ${employee} is the best.`,
+        `So happy with my nails, ${employee} nailed the shape.`,
+        `These nails are so cute, ${employee} did amazing work.`,
+        `My nails look so clean and cute, ${employee} did great.`,
       ];
       review = sanitize(pick(nailsFallback));
-      review = fixBadNameContext(review); // ✅ NEW
+      review = fixBadNameContext(review);
       review = trimToSentences(review, 1);
+      review = ensureEndsWithPunctuation(review);
       review = trimToMaxWords(review, maxWordsForType());
     }
 
-    // Massage fallback (NEW) — supports no-name mode
+    // Massage fallback
     if (isMassage && !massageIsAcceptable(review)) {
       const massageFallbackNamed = [
         `My massage felt great and ${employee} was awesome.`,
         `Really happy I booked a massage with ${employee}.`,
         `My massage was relaxing and ${employee} did great.`,
-        `My massage helped a lot and ${employee} was great.`,
       ];
 
       const massageFallbackNoName = [
         `My massage felt really relaxing and I would come back.`,
-        `Really happy I booked a massage and I feel great after.`,
         `My massage was exactly what I needed today.`,
         `Such a relaxing massage and I would recommend it.`,
       ];
 
       review = sanitize(pick(noName ? massageFallbackNoName : massageFallbackNamed));
-      review = fixBadNameContext(review); // ✅ NEW
+      review = fixBadNameContext(review);
       review = trimToSentences(review, 1);
+      review = ensureEndsWithPunctuation(review);
       review = trimToMaxWords(review, maxWordsForType());
     }
 
-    // Detailing fallback (KEEP your behavior)
+    // Detailing fallback
     if (!isSolar && !isNails && !isMassage && !detailingIsAcceptable(review)) {
       review =
         sentenceTarget === 2
@@ -638,8 +774,9 @@ Return ONLY the review text.
           : `My car looks great after the detail, ${employee} did a solid job.`;
 
       review = sanitize(review);
-      review = fixBadNameContext(review); // ✅ NEW
+      review = fixBadNameContext(review);
       review = trimToSentences(review, sentenceTarget);
+      review = ensureEndsWithPunctuation(review);
       review = trimToMaxWords(review, maxWordsForType());
     }
 
