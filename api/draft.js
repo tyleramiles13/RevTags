@@ -6,7 +6,7 @@ module.exports = async function handler(req, res) {
 
   const { employee, businessType, serviceNotes } = req.body || {};
 
-  // ✅ no-name mode (only impacts types that use it)
+  // no-name mode (only impacts types that use it)
   const noName =
     req.body?.noName === true ||
     req.body?.noName === "true" ||
@@ -27,11 +27,9 @@ module.exports = async function handler(req, res) {
   // --- Determine business type ---
   let type = (businessType || "").toLowerCase().trim();
 
-  // Keep existing behavior (Will safe)
   if (type === "auto-detailing") type = "auto_detailing";
   if (type === "detail" || type === "detailing") type = "auto_detailing";
 
-  // Added types
   if (
     type === "nail" ||
     type === "nails" ||
@@ -49,7 +47,6 @@ module.exports = async function handler(req, res) {
     type = "massage";
   }
 
-  // Default stays detailing
   if (!type) type = "auto_detailing";
 
   const notes = String(serviceNotes || "").trim();
@@ -59,9 +56,9 @@ module.exports = async function handler(req, res) {
   }
 
   // Sentence targets
-  // Solar: ALWAYS 1
-  // Nails: ALWAYS 1
-  // Massage: ALWAYS 1 (we keep this)
+  // Solar: 1
+  // Nails: 1
+  // Massage: 1
   // Detailing: mostly 1, sometimes 2
   const sentenceTarget =
     type === "solar"
@@ -74,7 +71,7 @@ module.exports = async function handler(req, res) {
       ? 2
       : 1;
 
-  // Remove forbidden punctuation
+  // --- Helpers ---
   function sanitize(text) {
     return String(text || "")
       .replace(/[;:—–-]/g, "")
@@ -118,7 +115,6 @@ module.exports = async function handler(req, res) {
     return t;
   }
 
-  // ✅ gentle shortening (keeps it readable)
   function trimToMaxWords(text, maxWords) {
     const t = String(text || "").trim();
     if (!t) return t;
@@ -133,8 +129,8 @@ module.exports = async function handler(req, res) {
 
   function maxWordsForType() {
     if (type === "solar") return 16;
-    if (type === "nails") return 14;
-    if (type === "massage") return noName ? 14 : 14; // keep tight
+    if (type === "nails") return 16;
+    if (type === "massage") return 16;
     return sentenceTarget === 2 ? 30 : 22;
   }
 
@@ -182,7 +178,7 @@ module.exports = async function handler(req, res) {
     return arr.some((p) => low.includes(String(p).toLowerCase()));
   }
 
-  // ✅ Stop employee name being used like a location/channel
+  // Stop employee name being used like a location/channel
   function hasBadNameContext(text) {
     const t = String(text || "");
     const name = String(employee || "").trim();
@@ -213,7 +209,7 @@ module.exports = async function handler(req, res) {
     return t;
   }
 
-  // ✅ Reject fragments like: "she really", "who really knows", "I..."
+  // Reject trailing fragments
   function endsLikeFragment(text) {
     const t = String(text || "").trim();
     if (!t) return true;
@@ -221,7 +217,6 @@ module.exports = async function handler(req, res) {
     if (/[,"']$/.test(t)) return true;
 
     const cleaned = t.replace(/[.!?]+$/g, "").trim().toLowerCase();
-
     const badEndings = [
       "she",
       "he",
@@ -248,11 +243,7 @@ module.exports = async function handler(req, res) {
       "at",
       "from",
     ];
-
     if (badEndings.includes(cleaned)) return true;
-
-    if (/(who|she|he)\s+really$/.test(cleaned)) return true;
-    if (/\bi\s*$/.test(cleaned)) return true;
 
     const last = cleaned.split(/\s+/).filter(Boolean).slice(-1)[0] || "";
     if (last.length <= 1) return true;
@@ -260,8 +251,49 @@ module.exports = async function handler(req, res) {
     return false;
   }
 
+  // --- Similarity helpers for duplicate/similarity guard ---
+  function normalize(text) {
+    return String(text || "")
+      .toLowerCase()
+      .replace(/[\u2019]/g, "'")
+      .replace(/[^a-z0-9\s]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  function trigrams(text) {
+    const words = normalize(text).split(" ").filter(Boolean);
+    if (words.length < 3) return new Set(words);
+    const grams = [];
+    for (let i = 0; i < words.length - 2; i++) {
+      grams.push(words[i] + " " + words[i + 1] + " " + words[i + 2]);
+    }
+    return new Set(grams);
+  }
+
+  function jaccard(aSet, bSet) {
+    if (!aSet.size && !bSet.size) return 1;
+    let inter = 0;
+    for (const x of aSet) if (bSet.has(x)) inter++;
+    const union = aSet.size + bSet.size - inter;
+    return union === 0 ? 0 : inter / union;
+  }
+
+  function similarityScore(a, b) {
+    return jaccard(trigrams(a), trigrams(b));
+  }
+
+  function isNearDuplicate(candidate, accepted, threshold) {
+    const cNorm = normalize(candidate);
+    for (const a of accepted) {
+      if (normalize(a) === cNorm) return true; // exact
+      if (similarityScore(candidate, a) >= threshold) return true; // too similar
+    }
+    return false;
+  }
+
   // ------------------------
-  // SOLAR (same as your version)
+  // SOLAR (keep your behavior)
   // ------------------------
   const solarBannedPhrases = [
     "easy to understand",
@@ -286,7 +318,6 @@ module.exports = async function handler(req, res) {
   function solarIsAcceptable(text) {
     const t = String(text || "").trim();
     if (!t) return false;
-
     if (startsWithName(t)) return false;
     if (startsWithStory(t)) return false;
     if (hasBadNameContext(t)) return false;
@@ -297,9 +328,7 @@ module.exports = async function handler(req, res) {
     if (!low.includes(String(employee).toLowerCase())) return false;
     if (containsAny(t, solarBannedPhrases)) return false;
     if (countSentences(t) > 1) return false;
-
-    const wc = wordCount(t);
-    if (wc < 8) return false;
+    if (wordCount(t) < 8) return false;
 
     return /[.!?]$/.test(t);
   }
@@ -340,7 +369,7 @@ Return ONLY the review text.
   }
 
   // ------------------------
-  // NAILS (your existing nails rules — unchanged here)
+  // NAILS (keep your current version)
   // ------------------------
   const nailsBannedPhrases = [
     "after a long day",
@@ -371,6 +400,7 @@ Return ONLY the review text.
 
     const wc = wordCount(t);
     if (wc < 7) return false;
+    if (wc > 18) return false;
 
     return /[.!?]$/.test(t);
   }
@@ -413,7 +443,7 @@ Return ONLY the review text.
   }
 
   // ------------------------
-  // MASSAGE (FIXED: varied + rejects your repeated templates)
+  // MASSAGE (UPDATED: duplicate guard + anti-template cluster + batch pick)
   // ------------------------
   const massageBannedPhrases = [
     "session",
@@ -430,34 +460,41 @@ Return ONLY the review text.
     "trigger points",
     "injury",
     "pain is gone",
-    // ✅ kill the repetitive templates you showed
-    "exactly what i needed",
+
+    // anti-template cluster you showed
+    "excellent massage",
+    "fantastic",
+    "amazing",
+    "incredibly relaxing",
     "completely relaxed",
     "relaxed and rejuvenated",
     "rejuvenated",
-    "ease my tension",
-    "eased my tension",
-    "helped ease my tension",
-    "incredibly relaxing",
+    "melt away",
+    "melted away",
+    "melt away my stress",
     "left me feeling",
+    "can't wait to return",
+    "can’t wait to return",
+    "return for another",
+    "exactly what i needed",
   ];
 
   const massageStyleCards = [
     {
-      hint: "Short + real. Mention feeling better without sounding dramatic.",
-      starters: ["So glad I booked", "Really happy I came in", "I feel so much better", "That was perfect"],
+      hint: "Low-key and simple. No big words.",
+      starters: ["Really glad I came in", "So glad I booked", "This helped a lot", "Felt really good after"],
     },
     {
-      hint: "Calm and simple. No big words.",
-      starters: ["Really relaxing", "Great massage", "Super calming", "Felt really good"],
+      hint: "Practical and calm. Sounds like a real person.",
+      starters: ["Great massage", "Solid massage", "Really smooth massage", "Happy with this massage"],
     },
     {
       hint: "Result-focused but general (no medical claims).",
-      starters: ["Left feeling refreshed", "Left feeling lighter", "Feeling way more relaxed", "Feeling refreshed after"],
+      starters: ["Feeling refreshed after", "Feeling lighter after", "Feeling more relaxed after", "Feeling better after"],
     },
     {
-      hint: "Appreciative but not salesy.",
-      starters: ["Really appreciate", "So thankful", "Glad I found", "Happy I booked with"],
+      hint: "Short and friendly, not salesy.",
+      starters: ["Glad I found this place", "I’ll be back", "Definitely coming back", "Happy I booked today"],
     },
   ];
 
@@ -476,7 +513,6 @@ Return ONLY the review text.
     const low = t.toLowerCase();
     const empLow = String(employee).toLowerCase();
 
-    // no-name mode
     if (noName) {
       if (low.includes(empLow)) return false;
     } else {
@@ -484,6 +520,7 @@ Return ONLY the review text.
     }
 
     if (!low.includes("massage")) return false;
+
     if (containsAny(t, massageBannedPhrases)) return false;
 
     const wc = wordCount(t);
@@ -492,7 +529,7 @@ Return ONLY the review text.
 
     if (!/[.!?]$/.test(t)) return false;
 
-    // ✅ reject the most repetitive opener pattern
+    // avoid the repetitive opener pattern
     if (low.startsWith("the massage was")) return false;
 
     return true;
@@ -517,9 +554,9 @@ Hard rules:
 - Do NOT mention the business name.
 - Include the word "massage" at least once.
 - Keep it short: 7 to 18 words.
-- Avoid cliché templates like "exactly what I needed" or "relaxed and rejuvenated".
+- Avoid cliché phrases like "rejuvenated", "melt away my stress", "can't wait to return", "exactly what I needed".
 - Do NOT use the words "session" or "experience".
-- Do NOT invent specific medical claims.
+- Do NOT invent medical claims.
 - Do NOT use semicolons, colons, or any dashes.
 - Do NOT start with "The massage was".
 
@@ -536,7 +573,7 @@ Name rules:
 
 Style goal:
 - ${style.hint}
-- Optional starter vibe: "${starter}" (you can rephrase it, just keep the vibe).
+- Optional starter vibe: "${starter}" (you can rephrase it).
 
 Optional notes (tone only):
 ${notes || "(none)"}
@@ -549,7 +586,7 @@ Return ONLY the review text.
   }
 
   // ------------------------
-  // DETAILING (same as your version)
+  // DETAILING (keep your behavior)
   // ------------------------
   function detailingIsAcceptable(text) {
     const t = String(text || "").trim();
@@ -610,8 +647,8 @@ Return ONLY the review text.
           ],
           temperature: temp,
           top_p: 0.95,
-          presence_penalty: 0.8,
-          frequency_penalty: 0.5,
+          presence_penalty: 0.85,
+          frequency_penalty: 0.6,
           max_tokens: maxTokens,
         }),
       });
@@ -626,24 +663,23 @@ Return ONLY the review text.
     }
   }
 
-  // ✅ Massage scoring: discourage sameness even within the batch
+  // scoring for massage candidates: prefer less “templatey”
   function scoreMassageCandidate(t) {
-    const low = String(t || "").toLowerCase();
+    const low = normalize(t);
 
     let score = 0;
 
-    // Penalize your repetitive words
-    const repetitive = ["relaxing", "relaxed", "rejuvenated", "tension", "exactly what i needed"];
+    // penalize the words that keep showing up
+    const repetitive = ["excellent", "fantastic", "amazing", "rejuvenated", "melt away", "renewed", "completely"];
     for (const p of repetitive) {
       if (low.includes(p)) score += 3;
     }
 
-    // Penalize bland opener patterns
-    if (low.startsWith("the massage")) score += 6;
-    if (low.startsWith("my massage")) score += 3;
-    if (low.includes("left me feeling")) score += 4;
+    // penalize “left feeling …” template
+    if (low.startsWith("left feeling")) score += 6;
+    if (low.includes("left feeling")) score += 3;
 
-    // Prefer shorter
+    // prefer shorter
     const wc = wordCount(t);
     score += Math.max(0, wc - 13) * 0.6;
 
@@ -656,12 +692,16 @@ Return ONLY the review text.
     const isNails = type === "nails";
     const isMassage = type === "massage";
 
-    // ✅ MASSAGE: batch generate and pick best (THIS is the main fix)
+    // ✅ MASSAGE: batch + duplicate guard + similarity guard
     if (isMassage) {
-      const candidates = [];
-      for (let i = 0; i < 9; i++) {
+      const accepted = [];
+      const TARGET = 6; // try to collect up to 6 good candidates
+      const ATTEMPTS = 14; // generate extra because we reject a bunch
+      const SIM_THRESHOLD = 0.34; // lower = stricter “too similar” blocking
+
+      for (let i = 0; i < ATTEMPTS && accepted.length < TARGET; i++) {
         const prompt = buildPromptMassage();
-        let r = await generate(prompt, 1.25, 70);
+        let r = await generate(prompt, 1.28, 70);
 
         r = sanitize(r);
         r = fixBadNameContext(r);
@@ -669,15 +709,27 @@ Return ONLY the review text.
         r = ensureEndsWithPunctuation(r);
         r = trimToMaxWords(r, maxWordsForType());
 
-        if (massageIsAcceptable(r)) candidates.push(r);
+        if (!massageIsAcceptable(r)) continue;
+        if (isNearDuplicate(r, accepted, SIM_THRESHOLD)) continue;
+
+        accepted.push(r);
       }
 
-      if (candidates.length > 0) {
-        candidates.sort((a, b) => scoreMassageCandidate(a) - scoreMassageCandidate(b));
-        review = candidates[0];
+      if (accepted.length > 0) {
+        accepted.sort((a, b) => scoreMassageCandidate(a) - scoreMassageCandidate(b));
+        review = accepted[0];
         return res.status(200).json({ review });
       }
-      // If batch failed, fall through to normal retry/fallback
+
+      // fallback if nothing passes
+      review = noName
+        ? `Great massage today, I feel better after.`
+        : `Great massage with ${employee}, I feel better after.`;
+      review = sanitize(review);
+      review = trimToSentences(review, 1);
+      review = ensureEndsWithPunctuation(review);
+      review = trimToMaxWords(review, maxWordsForType());
+      return res.status(200).json({ review });
     }
 
     // Normal path: solar/nails/detailing
@@ -691,7 +743,7 @@ Return ONLY the review text.
       review = await generate(
         prompt,
         isSolar ? 1.25 : isNails ? 1.15 : 1.05,
-        isSolar ? 65 : isNails ? 65 : 85
+        isSolar ? 65 : isNails ? 70 : 85
       );
 
       review = sanitize(review);
@@ -733,36 +785,12 @@ Return ONLY the review text.
     // Nails fallback
     if (isNails && !nailsIsAcceptable(review)) {
       const nailsFallback = [
-        `My nails look so cute and ${employee} did great.`,
-        `Love how my nails turned out and ${employee} was awesome.`,
-        `My nails came out really nice and ${employee} helped a lot.`,
-        `So happy with my nails and ${employee} did great.`,
-        `My nails look amazing and I booked with ${employee}.`,
+        `Love my nails, ${employee} did such a good job.`,
+        `My nails turned out perfect, ${employee} did great.`,
+        `So happy with my nails, ${employee} nailed the shape.`,
+        `These nails are so cute, ${employee} did great.`,
       ];
       review = sanitize(pick(nailsFallback));
-      review = fixBadNameContext(review);
-      review = trimToSentences(review, 1);
-      review = ensureEndsWithPunctuation(review);
-      review = trimToMaxWords(review, maxWordsForType());
-    }
-
-    // Massage fallback (now more varied + avoids your templates)
-    if (isMassage && !massageIsAcceptable(review)) {
-      const massageFallbackNamed = [
-        `Really happy I booked a massage with ${employee} today.`,
-        `Great massage with ${employee}, I feel refreshed after.`,
-        `So glad I came in for a massage with ${employee}.`,
-        `My massage with ${employee} felt calm and steady.`,
-      ];
-
-      const massageFallbackNoName = [
-        `Really happy I booked a massage today.`,
-        `Great massage and I feel refreshed after.`,
-        `So glad I came in for a massage.`,
-        `My massage felt calm and steady.`,
-      ];
-
-      review = sanitize(pick(noName ? massageFallbackNoName : massageFallbackNamed));
       review = fixBadNameContext(review);
       review = trimToSentences(review, 1);
       review = ensureEndsWithPunctuation(review);
