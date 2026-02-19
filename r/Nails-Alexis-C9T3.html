@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Leave a Review</title>
+
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+
+<div class="card"
+  data-employee="Alexis"
+  data-business="Lex.co Nail Studio"
+  data-business-type="nails"
+  data-google-review-url="https://www.google.com/search?client=safari&hs=o529&sca_esv=5dca0e6f8aa8611e&hl=en-us&sxsrf=ANbL-n66E--Ivj7DCPfKbRIwHQb6Lh87mw:1771529046789&q=lexxi+nails+and+spa+reviews&uds=ALYpb_lIH59Ih_cc6TevARqHqdJk8rUtM2WbRnVzZq308qEcOiwLwq_cyh4drGt-G3ekKXHlh2yfaCws4kXGk3LkjkcXme4H19BwSvPvFJZ3ummdecU4wYPDlJfbFehsBMrJMxiamo140CXem9MKSU7JVDcsHwYLswWXMgeCQsAWZ16BVEWOZtpARybw_8KsVF-0yB2_n6ktXNm13IWTrV_-MKrVQEqY7F0ANhhL7d5W_Ki1-7QWV4f4o8LiWOWLzWm9WcYhd2s_Lk2-O10jHNH-VMVBlmI-oeo98zTQ_Kajie8b5DF66bxQFSsF1669a_5XJCFH6zMOkcnHWnRNfKA5TDV1l2SwnAjtRKt77iqa6osuFw3sYT6YVslz_7ws0hQ655dpS1AtbvFR8AlWW8ZVWmxY-pN5oYL0xVBixjovsE7maDgLJfVMr9iyKlsBfn_IazSMTwiv1CsG5JjxLlLPFHOTMJBMSrmRGfVNYdSbS1f8Zlb3BydLvVeM0CG8pCXOB16RxE3E5w6PFoYeUINHFiMrpwHtDw&si=AL3DRZEsmMGCryMMFSHJ3StBhOdZ2-6yYkXd_doETEE1OR-qOf83VpxBjk1ByF3ZIqtpslPfPojwql2TtCSlETNGlgsnTo3LEDBPLGR5m9kZkhB_Qs-MpWASKVLVqBkyWo1LJKYtJG8wY-1m9UXhMQ8Tw5XVHfSGdA%3D%3D&sa=X&ved=2ahUKEwiy8Kv8o-aSAxWfB7wBHb8yHOYQk8gLegQIHRAB&ictx=1&biw=393&bih=749&dpr=3&zx=1771529052110&no_sw_cr=1#ebo=1>
+
+  <h1>Leave Alexis a quick review</h1>
+  <p class="business">Lex.co Nail Studio</p>
+
+  <button id="draftBtn">Draft review with AI</button>
+
+  <textarea
+    id="reviewText"
+    placeholder="Your review will appear here..."
+    rows="5"
+  ></textarea>
+
+  <div class="actions">
+    <button id="copyBtn">Copy review</button>
+
+    <a
+      id="googleBtn"
+      href="#"
+      target="_blank"
+      class="google-btn"
+    >
+      Open Google review
+    </a>
+  </div>
+
+  <p class="note">
+    After tapping, paste your review and finish editing it on Google before submitting.
+  </p>
+</div>
+
+<script src="../script.js"></script>
+
+<!-- ✅ REV TAGS SAFE DELAY + LOCKED TEXTBOX SCRIPT -->
+<script>
+(function () {
+
+  const reviewText = document.getElementById("reviewText");
+  const googleBtn = document.getElementById("googleBtn");
+  const draftBtn = document.getElementById("draftBtn");
+  const card = document.querySelector(".card");
+
+  if (!reviewText || !googleBtn || !card) return;
+
+  const googleUrl =
+    card.dataset.googleReviewUrl ||
+    card.dataset.googleUrl ||
+    "#";
+
+  googleBtn.href = googleUrl;
+
+  // -------- LOCK TEXT BOX AFTER AI FILLS IT --------
+  let lockedOnce = false;
+
+  function lockBox() {
+    if (lockedOnce) return;
+    lockedOnce = true;
+
+    reviewText.readOnly = true;
+    reviewText.style.background = "#f6f6f6";
+    reviewText.style.cursor = "default";
+  }
+
+  const watch = setInterval(() => {
+    if ((reviewText.value || "").trim().length > 0) {
+      lockBox();
+      clearInterval(watch);
+    }
+  }, 250);
+
+  if (draftBtn) {
+    draftBtn.addEventListener("click", () => {
+      reviewText.readOnly = false;
+      reviewText.style.background = "";
+      reviewText.style.cursor = "";
+      lockedOnce = false;
+    });
+  }
+
+  // -------- GOOGLE REDIRECT DELAY (IPHONE SAFE) --------
+  googleBtn.addEventListener("click", (e) => {
+
+    const url = googleBtn.getAttribute("href");
+    if (!url || url === "#") return;
+
+    e.preventDefault();
+
+    const original = googleBtn.textContent;
+    googleBtn.textContent = "Opening Google…";
+    googleBtn.style.pointerEvents = "none";
+
+    const delayMs = 1800;
+
+    // OPEN TAB IMMEDIATELY (needed for Safari)
+    const newWin = window.open("about:blank", "_blank");
+
+    setTimeout(() => {
+
+      try {
+        if (newWin && !newWin.closed) {
+          newWin.location.href = url;
+        } else {
+          window.location.href = url;
+        }
+      } finally {
+        googleBtn.textContent = original;
+        googleBtn.style.pointerEvents = "";
+      }
+
+    }, delayMs);
+
+  });
+
+})();
+</script>
+
+</body>
+</html>
