@@ -40,6 +40,7 @@ module.exports = async function handler(req, res) {
   ) {
     type = "nails";
   }
+
   if (
     type === "massage" ||
     type === "massages" ||
@@ -47,6 +48,17 @@ module.exports = async function handler(req, res) {
     type === "massage-therapy"
   ) {
     type = "massage";
+  }
+
+  // ✅ NEW: Insurance normalization
+  if (
+    type === "insurance" ||
+    type === "ins" ||
+    type === "insurance_agency" ||
+    type === "insurance-agency" ||
+    type === "allstate"
+  ) {
+    type = "insurance";
   }
 
   // Default stays detailing
@@ -62,6 +74,7 @@ module.exports = async function handler(req, res) {
   // Solar: 1
   // Nails: 1
   // Massage: 1
+  // Insurance: 1
   // Detailing: mostly 1, sometimes 2
   const sentenceTarget =
     type === "solar"
@@ -69,6 +82,8 @@ module.exports = async function handler(req, res) {
       : type === "nails"
       ? 1
       : type === "massage"
+      ? 1
+      : type === "insurance"
       ? 1
       : Math.random() < 0.25
       ? 2
@@ -130,11 +145,13 @@ module.exports = async function handler(req, res) {
     return out;
   }
 
+  // ✅ Slightly shorter across the board
   function maxWordsForType() {
-    if (type === "solar") return 16;
-    if (type === "nails") return 16;
-    if (type === "massage") return 16;
-    return sentenceTarget === 2 ? 30 : 22;
+    if (type === "solar") return 14;
+    if (type === "nails") return 14;
+    if (type === "massage") return 14;
+    if (type === "insurance") return 14;
+    return sentenceTarget === 2 ? 28 : 20;
   }
 
   function startsWithName(text) {
@@ -295,6 +312,13 @@ module.exports = async function handler(req, res) {
     return false;
   }
 
+  // pick from top-N to avoid same “best” template every time
+  function pickFromTop(scored, topN) {
+    if (!Array.isArray(scored) || scored.length === 0) return null;
+    const n = Math.min(topN, scored.length);
+    return scored[Math.floor(Math.random() * n)];
+  }
+
   // -------- prompts + acceptability --------
 
   // SOLAR
@@ -338,7 +362,7 @@ module.exports = async function handler(req, res) {
 
   function buildPromptSolar() {
     const patterns = [
-      `Write ONE short sentence that sounds like a real Google review starter and is easy for a customer to edit.`,
+      `Write ONE short sentence that sounds like a real Google review starter and is easy to edit.`,
       `Write ONE sentence that feels genuine but stays general so the customer can personalize it.`,
       `Write ONE sentence that sounds normal and not robotic and leaves room for the customer to add details.`,
       `Write ONE sentence that is positive and vague like a template someone could tweak.`,
@@ -355,7 +379,6 @@ Hard rules:
 - Include the word "solar" exactly once.
 - Mention "${employee}" exactly once.
 - Treat "${employee}" as a PERSON (not a place): do NOT say "through ${employee}" or "in ${employee}" or "at ${employee}".
-- Keep it general like a template so the customer can edit.
 - Keep it short.
 - Do NOT use any of these phrases: ${solarBannedPhrases.join(", ")}.
 - Do NOT use semicolons, colons, or any dashes.
@@ -376,9 +399,26 @@ Return ONLY the review text.
     "thanks to",
     "thank you",
     "experience",
+    "chatting",
     "great time chatting",
     "had a great time chatting",
-    "chatting with",
+
+    // ✅ kill the repeating templates you showed
+    "really love my nails",
+    "love my nails",
+    "my nails look amazing",
+    "did a great job",
+    "was great",
+    "came out really nice",
+    "turned out great",
+  ];
+
+  // also avoid starting with these 2-3 word openers
+  const nailsBadStarts = [
+    "love my",
+    "really love",
+    "my nails",
+    "these nails",
   ];
 
   function nailsIsAcceptable(text) {
@@ -393,37 +433,50 @@ Return ONLY the review text.
     if (countSentences(t) > 1) return false;
 
     const low = t.toLowerCase();
-    if (!low.includes(String(employee).toLowerCase())) return false;
+    const empLow = String(employee).toLowerCase();
+
+    // if noName ever used for nails, respect it
+    if (noName) {
+      if (low.includes(empLow)) return false;
+    } else {
+      if (!low.includes(empLow)) return false;
+    }
+
     if (!(low.includes("nail") || low.includes("nails"))) return false;
     if (containsAny(t, nailsBannedPhrases)) return false;
 
+    for (const s of nailsBadStarts) {
+      if (low.startsWith(s)) return false;
+    }
+
     const wc = wordCount(t);
     if (wc < 7) return false;
-    if (wc > 18) return false;
+    if (wc > 16) return false;
 
     return /[.!?]$/.test(t);
   }
 
   function buildPromptNailsBatch() {
     return `
-Write 10 VERY DIFFERENT one-sentence Google review drafts for getting nails done.
+Write 12 VERY DIFFERENT one-sentence Google review drafts for getting nails done.
 
 Hard rules:
 - Each line is ONE complete sentence only.
 - Each sentence must include "nail" or "nails".
-- Mention "${employee}" exactly once in each sentence.
-- Do NOT start or end with "${employee}".
+- Keep each sentence 7 to 16 words.
 - Do NOT mention the business name.
-- Keep each sentence 7 to 18 words.
+- Do NOT use these phrases: love my nails, really love my nails, my nails look amazing, did a great job, was great, turned out great.
+- Avoid starting sentences with: "My nails", "Love my", "Really love", "These nails".
 - Avoid "thanks", "thank you", and the word "experience".
-- Avoid "chatting" and "great time chatting".
+- Avoid "chatting".
 - Avoid overly salesy words like amazing, fantastic, incredible, top notch.
 - Do NOT use semicolons, colons, or any dashes.
+${noName ? "- Do NOT include any employee name.\n" : `- Mention "${employee}" exactly once in each sentence.\n- Do NOT start or end with "${employee}".\n`}
 
 Optional notes (tone only):
 ${notes || "(none)"}
 
-Return ONLY the 10 sentences, each on a new line.
+Return ONLY the 12 sentences, each on a new line.
     `.trim();
   }
 
@@ -436,7 +489,11 @@ Return ONLY the 10 sentences, each on a new line.
 
     // prefer shorter
     const wc = wordCount(t);
-    score += Math.max(0, wc - 14) * 0.6;
+    score += Math.max(0, wc - 12) * 0.7;
+
+    // punish anything that resembles the old template cluster
+    const templatey = ["love my nails", "my nails look", "did a great", "was great"];
+    for (const p of templatey) if (low.includes(p)) score += 8;
 
     return score;
   }
@@ -452,7 +509,8 @@ Return ONLY the 10 sentences, each on a new line.
     "trigger points",
     "injury",
     "pain is gone",
-    // template cluster
+
+    // cliché cluster
     "rejuvenated",
     "melt away",
     "melted away",
@@ -495,7 +553,7 @@ Return ONLY the 10 sentences, each on a new line.
 
     const wc = wordCount(t);
     if (wc < 7) return false;
-    if (wc > 18) return false;
+    if (wc > 16) return false;
 
     if (!/[.!?]$/.test(t)) return false;
     if (low.startsWith("the massage was")) return false;
@@ -505,12 +563,12 @@ Return ONLY the 10 sentences, each on a new line.
 
   function buildPromptMassageBatch() {
     return `
-Write 10 VERY DIFFERENT one-sentence Google review drafts for a massage.
+Write 12 VERY DIFFERENT one-sentence Google review drafts for a massage.
 
 Hard rules:
 - Each line is ONE complete sentence only.
 - Include the word "massage" in every sentence.
-- Keep each sentence 7 to 18 words.
+- Keep each sentence 7 to 16 words.
 - Do NOT start with "The massage was".
 - Avoid cliché phrases like rejuvenated, melt away stress, exactly what I needed, can't wait to return.
 - Do NOT use the words "session" or "experience".
@@ -521,7 +579,7 @@ ${noName ? "- Do NOT include any employee name.\n" : `- Mention "${employee}" ex
 Optional notes (tone only):
 ${notes || "(none)"}
 
-Return ONLY the 10 sentences, each on a new line.
+Return ONLY the 12 sentences, each on a new line.
     `.trim();
   }
 
@@ -532,11 +590,116 @@ Return ONLY the 10 sentences, each on a new line.
     const cliche = ["amazing", "fantastic", "incredible", "excellent", "rejuvenated", "renewed", "melt away", "stress"];
     for (const p of cliche) if (low.includes(p)) score += 3;
 
-    if (low.startsWith("left feeling")) score += 6;
-    if (low.includes("left feeling")) score += 3;
+    const wc = wordCount(t);
+    score += Math.max(0, wc - 12) * 0.7;
+
+    return score;
+  }
+
+  // ✅ NEW: INSURANCE (speed mode batch)
+  const insuranceBannedPhrases = [
+    // keep it real / not salesy / not risky
+    "saved me",
+    "saved us",
+    "lowest rate",
+    "best rate",
+    "cheapest",
+    "guaranteed",
+    "promise",
+    "approved instantly",
+    "cut my bill",
+    "dropped my rate",
+    "claim was denied",
+    "lawsuit",
+
+    // repetitive fluff
+    "experience",
+    "process",
+    "super easy",
+    "very easy",
+    "made it easy",
+    "smooth",
+
+    // avoid sounding like ads
+    "highly recommend",
+    "top notch",
+    "amazing",
+    "fantastic",
+    "incredible",
+  ];
+
+  function insuranceIsAcceptable(text) {
+    const t = String(text || "").trim();
+    if (!t) return false;
+
+    if (startsWithName(t)) return false;
+    if (endsWithName(t)) return false;
+    if (startsWithStory(t)) return false;
+    if (hasBadNameContext(t)) return false;
+    if (endsLikeFragment(t)) return false;
+    if (countSentences(t) > 1) return false;
+
+    const low = t.toLowerCase();
+    const empLow = String(employee).toLowerCase();
+
+    if (noName) {
+      if (low.includes(empLow)) return false;
+    } else {
+      // if noName is false, we allow name OR not-name for insurance,
+      // but we will TRY to include it via prompt.
+      // (This prevents hard failures if it doesn't include the name.)
+    }
+
+    // must feel insurance-ish but not force "insurance" word every time
+    const hasInsuranceHint =
+      low.includes("insurance") ||
+      low.includes("policy") ||
+      low.includes("coverage") ||
+      low.includes("agent") ||
+      low.includes("office");
+
+    if (!hasInsuranceHint) return false;
+
+    if (containsAny(t, insuranceBannedPhrases)) return false;
 
     const wc = wordCount(t);
-    score += Math.max(0, wc - 13) * 0.6;
+    if (wc < 7) return false;
+    if (wc > 16) return false;
+
+    return /[.!?]$/.test(t);
+  }
+
+  function buildPromptInsuranceBatch() {
+    return `
+Write 12 VERY DIFFERENT one-sentence Google review drafts for an insurance office.
+
+Hard rules:
+- Each line is ONE complete sentence only.
+- Keep each sentence 7 to 16 words.
+- Do NOT mention the business name.
+- Do NOT invent specific savings, prices, rates, or claim outcomes.
+- Avoid "experience", "process", "super easy", "made it easy", and "smooth".
+- Avoid overly salesy words like amazing, fantastic, incredible, top notch.
+- Include at least ONE of these words in each sentence: insurance, policy, coverage, agent, office.
+- Do NOT use semicolons, colons, or any dashes.
+${noName ? "- Do NOT include any employee name.\n" : `- If natural, mention "${employee}" once (not at the start or end).\n`}
+
+Optional notes (tone only):
+${notes || "(none)"}
+
+Return ONLY the 12 sentences, each on a new line.
+    `.trim();
+  }
+
+  function scoreInsuranceCandidate(t) {
+    const low = normalize(t);
+    let score = 0;
+
+    const cliche = ["highly recommend", "top notch", "amazing", "fantastic", "incredible"];
+    for (const p of cliche) if (low.includes(p)) score += 3;
+
+    const wc = wordCount(t);
+    score += Math.max(0, wc - 12) * 0.7;
 
     return score;
   }
@@ -638,11 +801,49 @@ Return ONLY the review text.
     const isSolar = type === "solar";
     const isNails = type === "nails";
     const isMassage = type === "massage";
+    const isInsurance = type === "insurance";
+
+    // ✅ INSURANCE: ONE AI CALL, then filter/pick
+    if (isInsurance) {
+      const prompt = buildPromptInsuranceBatch();
+      const batch = await generate(prompt, 1.18, 240);
+
+      const lines = processBatchLines(batch);
+
+      const accepted = [];
+      const SIM_THRESHOLD = 0.34;
+
+      for (const r of lines) {
+        if (!insuranceIsAcceptable(r)) continue;
+        if (isNearDuplicate(r, accepted, SIM_THRESHOLD)) continue;
+        accepted.push(r);
+      }
+
+      if (accepted.length > 0) {
+        const scored = accepted
+          .map((t) => ({ t, s: scoreInsuranceCandidate(t) }))
+          .sort((a, b) => a.s - b.s)
+          .map((x) => x.t);
+
+        const chosen = pickFromTop(scored, 3) || scored[0];
+        return res.status(200).json({ review: chosen });
+      }
+
+      // fallback
+      review = noName
+        ? `Very helpful insurance office, quick and professional.`
+        : `Very helpful insurance office, ${employee} was quick and professional.`;
+      review = sanitize(review);
+      review = trimToSentences(review, 1);
+      review = ensureEndsWithPunctuation(review);
+      review = trimToMaxWords(review, maxWordsForType());
+      return res.status(200).json({ review });
+    }
 
     // ✅ MASSAGE: ONE AI CALL, then filter/pick
     if (isMassage) {
       const prompt = buildPromptMassageBatch();
-      const batch = await generate(prompt, 1.22, 220);
+      const batch = await generate(prompt, 1.2, 240);
 
       const lines = processBatchLines(batch);
 
@@ -656,8 +857,13 @@ Return ONLY the review text.
       }
 
       if (accepted.length > 0) {
-        accepted.sort((a, b) => scoreMassageCandidate(a) - scoreMassageCandidate(b));
-        return res.status(200).json({ review: accepted[0] });
+        const scored = accepted
+          .map((t) => ({ t, s: scoreMassageCandidate(t) }))
+          .sort((a, b) => a.s - b.s)
+          .map((x) => x.t);
+
+        const chosen = pickFromTop(scored, 3) || scored[0];
+        return res.status(200).json({ review: chosen });
       }
 
       // fallback
@@ -674,7 +880,7 @@ Return ONLY the review text.
     // ✅ NAILS: ONE AI CALL, then filter/pick
     if (isNails) {
       const prompt = buildPromptNailsBatch();
-      const batch = await generate(prompt, 1.22, 220);
+      const batch = await generate(prompt, 1.2, 240);
 
       const lines = processBatchLines(batch);
 
@@ -688,17 +894,30 @@ Return ONLY the review text.
       }
 
       if (accepted.length > 0) {
-        accepted.sort((a, b) => scoreNailsCandidate(a) - scoreNailsCandidate(b));
-        return res.status(200).json({ review: accepted[0] });
+        const scored = accepted
+          .map((t) => ({ t, s: scoreNailsCandidate(t) }))
+          .sort((a, b) => a.s - b.s)
+          .map((x) => x.t);
+
+        const chosen = pickFromTop(scored, 3) || scored[0];
+        return res.status(200).json({ review: chosen });
       }
 
-      // fallback
-      const nailsFallback = [
-        `Love my nails, ${employee} did such a good job.`,
-        `My nails turned out great, ${employee} did awesome.`,
-        `So happy with my nails, ${employee} did great work.`,
-        `These nails are so cute, ${employee} did great.`,
-      ];
+      // fallback (also less template-y)
+      const nailsFallback = noName
+        ? [
+            `These nails came out clean and I am really happy.`,
+            `Super happy with how my nails look.`,
+            `My nails came out exactly how I wanted.`,
+            `Love how neat my nails turned out.`,
+          ]
+        : [
+            `These nails came out clean and ${employee} was so careful.`,
+            `Super happy with my nails, ${employee} was very detail oriented.`,
+            `My nails came out exactly how I wanted, ${employee} nailed it.`,
+            `Love how neat my nails turned out, ${employee} was great.`,
+          ];
+
       review = sanitize(pick(nailsFallback));
       review = trimToSentences(review, 1);
       review = ensureEndsWithPunctuation(review);
@@ -706,11 +925,11 @@ Return ONLY the review text.
       return res.status(200).json({ review });
     }
 
-    // SOLAR: keep your original retry approach (already fast)
+    // SOLAR: retry approach
     if (isSolar) {
       for (let attempt = 0; attempt < 4; attempt++) {
         const prompt = buildPromptSolar();
-        review = await generate(prompt, 1.25, 70);
+        review = await generate(prompt, 1.22, 70);
 
         review = sanitize(review);
         review = fixBadNameContext(review);
@@ -723,7 +942,7 @@ Return ONLY the review text.
 
       if (!solarIsAcceptable(review)) {
         const solarFallback = [
-          `Solid overall and ${employee} was great with solar.`,
+          `Solid overall and ${employee} was helpful with solar.`,
           `Glad I talked with ${employee} about solar.`,
           `Good visit and ${employee} was helpful with solar.`,
           `Really appreciate ${employee} being respectful about solar.`,
@@ -737,7 +956,7 @@ Return ONLY the review text.
       return res.status(200).json({ review });
     }
 
-    // DETAILING: keep your original retry approach
+    // DETAILING: retry approach
     for (let attempt = 0; attempt < 4; attempt++) {
       const prompt = buildPromptDetailing();
       review = await generate(prompt, 1.05, 90);

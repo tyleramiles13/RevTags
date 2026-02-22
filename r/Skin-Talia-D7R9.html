@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Leave a Review</title>
+
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+
+<div class="card"
+  data-employee="Talia"
+  data-business="Skin-Medical Cosmetics & Laser"
+  data-business-type="Skin"
+  data-google-review-url="https://www.google.com/search?client=safari&hs=SmNp&sca_esv=d9206005abff93d2&hl=en-us&sxsrf=ANbL-n4EnY5wo7o8L4tn0bFf7v-j5Bc7yg:1771533866712&q=skin+-+medical+cosmetics+and+laser+reviews&uds=ALYpb_ncIKbNn7ucaU_VCWNOrMSovHlsig-aB90sgOivkNSsRCU1RmzyNM8Y3HEAghhWlFUp_ubzGqYc2UKNOoDLB9eo7XTohlBRvN-09_-I79nEUR23RnthGVgj-iFCSi9z2Qb8ysCMLEDNLzn-ANxNcik5GDN3JIP_10fzCqzLakRME_FwzcZLZg7JMPCL4xEJ6OZgpct9yUotaEKF110vhDPLLtSYo2rLJ1-5OWWlmaX5El5Br6EdS8c8PKGqfwW-VyzY7hwsvWGrludqYzt6Wc30KecAF5JAWDUa5WB40IoZiD6j6pqFq-kegKmj-gMXqsdfcwR86jr5wrIsxmpP5kWaMkZIUJinIVYcqCLVEztbOAiDfGMa3FQe6TuK9jnHzQri_A2oi-rXJ_X9clu0WNx8y0GmWkFKvFCTXkPrsr8qt7A63_5PbQJxN4Rig9ll7TCriPTD7poVFgke2aTJDISxxd_RlL5sgYMkEG4-eWMP3Gq0K-yb8XGk2AifbfkCZ3D_r_7tzdgSPjIVhPDqBIUOhaU0dB7ApeI25XGE_85sRrB5y3EsM1aksnCU-BB4c2101ExG6KOXkWxUtPooKjxvHkOTwg&si=AL3DRZEsmMGCryMMFSHJ3StBhOdZ2-6yYkXd_doETEE1OR-qOcLmjQkX2x2WGyt0C043wO_6kK1NYZNCLWvjR2j-oCg3DNnFWbcMjVu06WdulMiAQtux0oMkTXwmel8QkoBWDVTMf8fRr8q7F-n4kUcoPT0ckOQkflB0yWZdJrYzBo8GdMwuCRw%3D&sa=X&ved=2ahUKEwj92NT2teaSAxXgEUQIHR0nM0MQk8gLegQIGRAB&ictx=1&biw=393&bih=641&dpr=3#ebo=1">
+
+  <h1>Leave Talia a quick review</h1>
+  <p class="business">Skin-Medical Cosmetics & Laser</p>
+
+  <button id="draftBtn">Draft review with AI</button>
+
+  <textarea
+    id="reviewText"
+    placeholder="Your review will appear here..."
+    rows="5"
+  ></textarea>
+
+  <div class="actions">
+    <button id="copyBtn">Copy review</button>
+
+    <a
+      id="googleBtn"
+      href="#"
+      target="_blank"
+      class="google-btn"
+    >
+      Open Google review
+    </a>
+  </div>
+
+  <p class="note">
+    After tapping, paste your review and finish editing it on Google before submitting.
+  </p>
+</div>
+
+<script src="../script.js"></script>
+
+<!-- ✅ REV TAGS SAFE DELAY + LOCKED TEXTBOX SCRIPT -->
+<script>
+(function () {
+
+  const reviewText = document.getElementById("reviewText");
+  const googleBtn = document.getElementById("googleBtn");
+  const draftBtn = document.getElementById("draftBtn");
+  const card = document.querySelector(".card");
+
+  if (!reviewText || !googleBtn || !card) return;
+
+  const googleUrl =
+    card.dataset.googleReviewUrl ||
+    card.dataset.googleUrl ||
+    "#";
+
+  googleBtn.href = googleUrl;
+
+  // -------- LOCK TEXT BOX AFTER AI FILLS IT --------
+  let lockedOnce = false;
+
+  function lockBox() {
+    if (lockedOnce) return;
+    lockedOnce = true;
+
+    reviewText.readOnly = true;
+    reviewText.style.background = "#f6f6f6";
+    reviewText.style.cursor = "default";
+  }
+
+  const watch = setInterval(() => {
+    if ((reviewText.value || "").trim().length > 0) {
+      lockBox();
+      clearInterval(watch);
+    }
+  }, 250);
+
+  if (draftBtn) {
+    draftBtn.addEventListener("click", () => {
+      reviewText.readOnly = false;
+      reviewText.style.background = "";
+      reviewText.style.cursor = "";
+      lockedOnce = false;
+    });
+  }
+
+  // -------- GOOGLE REDIRECT DELAY (IPHONE SAFE) --------
+  googleBtn.addEventListener("click", (e) => {
+
+    const url = googleBtn.getAttribute("href");
+    if (!url || url === "#") return;
+
+    e.preventDefault();
+
+    const original = googleBtn.textContent;
+    googleBtn.textContent = "Opening Google…";
+    googleBtn.style.pointerEvents = "none";
+
+    const delayMs = 1800;
+
+    // OPEN TAB IMMEDIATELY (needed for Safari)
+    const newWin = window.open("about:blank", "_blank");
+
+    setTimeout(() => {
+
+      try {
+        if (newWin && !newWin.closed) {
+          newWin.location.href = url;
+        } else {
+          window.location.href = url;
+        }
+      } finally {
+        googleBtn.textContent = original;
+        googleBtn.style.pointerEvents = "";
+      }
+
+    }, delayMs);
+
+  });
+
+})();
+</script>
+
+</body>
+</html>

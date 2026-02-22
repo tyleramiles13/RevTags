@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Leave a Review</title>
+
+  <meta name="robots" content="noindex, nofollow">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <link rel="stylesheet" href="../styles.css">
+</head>
+<body>
+
+<div class="card"
+  data-employee="Brody"
+  data-no-name="true"
+  data-business="Allstate"
+  data-business-type="insurance"
+  data-google-review-url="https://www.google.com/search?q=allstate+logan&client=safari&hs=wZjU&sca_esv=3cc870bd7e5dc38d&hl=en-us&sxsrf=ANbL-n7pkTAtvIRR7PhhVQGqTssyWMKLCA%3A1771794752804&ei=QHGbaYHeMJ3LkPIPn7OWqQM&oq=allstate+logan&gs_lp=EhNtb2JpbGUtZ3dzLXdpei1zZXJwIg5hbGxzdGF0ZSBsb2dhbjIFEAAYgAQyChAAGIAEGBQYhwIyCxAuGIAEGMcBGK8BMgoQABiABBgUGIcCMgYQABgWGB4yBhAAGBYYHjIGEAAYFhgeMgYQABgWGB5InwtQ1gNY2wlwAngAkAEBmAFeoAG7BKoBATe4AQPIAQD4AQGYAgigApEEwgIKEAAYsAMY1gQYR8ICDRAAGIAEGLADGEMYigXCAhkQLhiABBiwAxjRAxhDGMcBGMgDGIoF2AEBwgINEAAYgAQYsQMYQxiKBcICDRAAGIAEGLEDGBQYhwLCAhYQLhiABBixAxjRAxhDGMcBGMkDGIoFwgIIEAAYgAQYsQPCAgoQABiABBhDGIoFwgILEAAYgAQYkgMYigXCAggQABiABBiSA8ICCBAAGIAEGMkDmAMAiAYBkAYRugYECAEYCJIHAzcuMaAHrjiyBwM1LjG4B4EEwgcHMC4zLjMuMsgHJoAIAA&sclient=mobile-gws-wiz-serp#vhid=43:/g/11ngjf0jrc&vssid=reviews-collection-viewer-reviews-fact-entrypoint">
+
+  <h1>Leave a quick review</h1>
+  <p class="business">Allstate </p>
+
+  <button id="draftBtn">Draft review with AI</button>
+
+  <textarea
+    id="reviewText"
+    placeholder="Your review will appear here..."
+    rows="5"
+  ></textarea>
+
+  <div class="actions">
+    <button id="copyBtn">Copy review</button>
+
+    <a
+      id="googleBtn"
+      href="#"
+      target="_blank"
+      class="google-btn"
+    >
+      Open Google Review
+    </a>
+  </div>
+
+  <p class="note">
+    After tapping, paste your review and finish editing it before submitting.
+  </p>
+</div>
+
+<script src="../script.js"></script>
+
+<script>
+(function () {
+  const reviewText = document.getElementById("reviewText");
+  const googleBtn = document.getElementById("googleBtn");
+  const draftBtn = document.getElementById("draftBtn");
+  const card = document.querySelector(".card");
+
+  if (!reviewText || !googleBtn || !card) return;
+
+  const reviewUrl =
+    card.dataset.googleReviewUrl ||
+    card.dataset.googleUrl ||
+    "#";
+
+  googleBtn.href = reviewUrl;
+
+  // -------- TEXTBOX LOCK AFTER AI FILLS --------
+  let watcher = null;
+
+  function lockBox() {
+    reviewText.readOnly = true;
+    reviewText.style.background = "#f6f6f6";
+    reviewText.style.cursor = "default";
+  }
+
+  function unlockBox() {
+    reviewText.readOnly = false;
+    reviewText.style.background = "";
+    reviewText.style.cursor = "";
+  }
+
+  function startWatcher() {
+    if (watcher) clearInterval(watcher);
+
+    watcher = setInterval(() => {
+      if ((reviewText.value || "").trim().length > 0) {
+        lockBox();
+        clearInterval(watcher);
+        watcher = null;
+      }
+    }, 250);
+  }
+
+  startWatcher();
+
+  if (draftBtn) {
+    draftBtn.addEventListener("click", () => {
+      unlockBox();
+      startWatcher();
+    });
+  }
+
+  // -------- SAFE REDIRECT DELAY --------
+  googleBtn.addEventListener("click", function (e) {
+    const url = googleBtn.getAttribute("href");
+    if (!url || url === "#") return;
+
+    e.preventDefault();
+
+    const original = googleBtn.textContent;
+    googleBtn.textContent = "Opening…";
+    googleBtn.style.pointerEvents = "none";
+
+    const newWin = window.open("about:blank", "_blank");
+    const delayMs = 2200;
+
+    setTimeout(() => {
+      try {
+        if (newWin && !newWin.closed) {
+          newWin.location.href = url;
+        } else {
+          window.location.href = url;
+        }
+      } finally {
+        googleBtn.textContent = original;
+        googleBtn.style.pointerEvents = "";
+      }
+    }, delayMs);
+  });
+})();
+</script>
+
+</body>
+</html>
