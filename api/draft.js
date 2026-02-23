@@ -362,10 +362,6 @@ Return ONLY the review text.
 
     if (startsWithStory(t)) return false;
 
-    // ✅ CHANGE: DO NOT reject “ends with name” for massage
-    // This was forcing lots of good outputs to be rejected and falling back repeatedly.
-    // if (endsWithName(t)) return false;
-
     const low = t.toLowerCase();
     const empLow = String(employee).toLowerCase();
 
@@ -374,7 +370,7 @@ Return ONLY the review text.
     } else {
       if (!low.includes(empLow)) return false;
 
-      // ✅ NEW: name must appear exactly once (prevents Katai name loops)
+      // ✅ name must appear exactly once (prevents Katai name loops)
       if (countNameOccurrences(t, employee) !== 1) return false;
     }
 
@@ -398,6 +394,13 @@ Return ONLY the review text.
       `Write ONE short sentence with a slightly different structure than usual.`,
     ];
 
+    // ✅ NEW: RANDOMIZE whether starting with the name is allowed (prevents “always starts with name”)
+    const massageNameRule = noName
+      ? "- Do NOT mention any employee name."
+      : Math.random() < 0.5
+      ? `- Mention "${employee}" exactly once.\n- You MAY start with "${employee}" if it sounds natural.\n- It's OK if it ends with "${employee}".`
+      : `- Mention "${employee}" exactly once.\n- Do NOT start with "${employee}".\n- Place the name naturally later in the sentence.\n- It's OK if it ends with "${employee}".`;
+
     return `
 Write a review draft.
 
@@ -412,7 +415,7 @@ Hard rules:
 - Do NOT add made up details or stories.
 - Do NOT use semicolons, colons, or any dashes.
 - Avoid starting with “Really happy I booked…”.
-${noName ? "- Do NOT mention any employee name." : `- Mention "${employee}" exactly once.\n- You MAY start with "${employee}" if it sounds natural.\n- It's OK if it ends with "${employee}".`}
+${massageNameRule}
 
 Optional notes (tone only):
 ${notes || "(none)"}
@@ -484,7 +487,7 @@ Return ONLY the review text.
   }
 
   // ------------------------
-  // INSURANCE (kept as you last had it in this file style)
+  // INSURANCE (✅ improved to avoid your “sorted/hassle/headache/chill” repeats)
   // ------------------------
   const insuranceBannedPhrases = [
     "smooth and straightforward",
@@ -499,6 +502,31 @@ Return ONLY the review text.
     "walked me through",
     "broke everything down",
     "explained everything",
+
+    // ✅ NEW bans based on your bad outputs
+    "sorted",
+    "sorted out",
+    "sorted here",
+    "squared away",
+    "squared",
+    "headache",
+    "hassle",
+    "without a fuss",
+    "a fuss",
+    "breeze",
+    "super chill",
+    "chill vibe",
+    "folks were",
+    "way less stressful",
+    "less stressful",
+    "made it easy",
+    "easy options",
+    "my options",
+    "got my insurance",
+    "getting my insurance",
+    "insurance process",
+    "the process",
+    "process",
   ];
 
   function insuranceIsAcceptable(text) {
@@ -528,10 +556,10 @@ Return ONLY the review text.
 
   function buildPromptInsurance() {
     const patterns = [
-      "Write ONE short, casual sentence like a normal person leaving a quick review.",
-      "Write ONE simple sentence that feels natural and not corporate or salesy.",
-      "Write ONE very short, low-key sentence someone might actually type on their phone.",
-      "Write ONE quick, human-sounding line that feels real and informal.",
+      "Write ONE short sentence that sounds like a real person typing fast on their phone.",
+      "Write ONE quick, casual line that feels normal and not polished.",
+      "Write ONE short insurance review that is simple and not corporate.",
+      "Write ONE low-key sentence that feels human and a little imperfect.",
     ];
 
     return `
@@ -540,18 +568,19 @@ Write a Google review draft.
 Hard rules:
 - Exactly ONE sentence.
 - Keep it SHORT and casual.
-- Avoid professional or corporate sounding language.
-- Avoid phrases like: smooth, straightforward, easy to understand, process.
+- Avoid professional / corporate sounding language.
 - Include the word "insurance" at least once.
 - Do NOT mention the business name.
 - Do NOT make savings promises or pricing claims.
 - Do NOT use semicolons, colons, or any dashes.
-${noName ? "- Do NOT mention any employee name." : `- Mention "${employee}" exactly once.\n- Do NOT start with "${employee}".\n- Do NOT end with "${employee}".`}
+- Do NOT use phrases like: sorted, squared away, hassle, headache, breeze, chill, process, straightforward, easy to understand.
+- Avoid starting with "Got my insurance..." or "Getting my insurance...".
+${noName ? "- Do NOT mention any employee name." : `- Mention "${employee}" exactly once.\n- Do NOT start with "${employee}".\n- Do NOT end with "${employee}".\n- Don’t make it sound like an ad.`}
 
 Tone:
-- Sounds like a real customer typing fast.
-- Slightly imperfect is OK.
-- Short and human.
+- Sounds like a real customer.
+- Simple words.
+- Not overly positive or salesy.
 
 Optional notes:
 ${notes || "(none)"}
